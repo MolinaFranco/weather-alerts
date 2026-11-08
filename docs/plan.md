@@ -408,19 +408,19 @@ flowchart LR
 ```
 
 ### Fase 0 — Setup
-- [ ] `pyproject.toml` con uv, ruff y pytest configurados
-- [ ] `Dockerfile` (Python 3.12 + uv) y `docker-compose.yml` con Postgres y la API
-- [ ] Todo corre con `docker compose`; `uv` local es opcional para el editor y correr tests rápido
-- [ ] `app/config.py` y `app/db.py`
-- [ ] `app/main.py` con `/health`
-- [ ] Fixture de tests: base de test, transacción por test con rollback
-- [ ] CI de GitHub Actions: ruff + pytest con servicio Postgres
+- [x] `pyproject.toml` con uv, ruff y pytest configurados
+- [x] `Dockerfile` (Python 3.12 + uv) y `docker-compose.yml` con Postgres y la API
+- [x] Todo corre con `docker compose`; `uv` local es opcional para el editor y correr tests rápido
+- [x] `app/config.py` y `app/db.py`
+- [x] `app/main.py` con `/health`
+- [x] Fixture de tests: base de test, transacción por test con rollback
+- [x] CI de GitHub Actions: ruff + pytest con servicio Postgres
 - **Test:** `/health` responde 200 con la base arriba
 - **Revisión:** ¿la configuración tiene solo lo que se usa?
 
 ### Fase 1 — Modelo de datos
-- [ ] `app/models.py` con las 7 tablas, enums y constraints
-- [ ] Alembic inicializado (async) y primera migración, con el trigger de estado
+- [x] `app/models.py` con las 7 tablas, enums y constraints
+- [x] Alembic inicializado (async) y primera migración, con el trigger de estado
 - **Test:** `upgrade head` y `downgrade base` corren limpios
 - **Test:** los constraints rechazan datos inválidos (umbral 0, probabilidad 101, duplicados, punto sin dueño)
 - **Test:** una muestra que llega a un punto en testing queda en testing, y sigue así cuando el punto se activa
