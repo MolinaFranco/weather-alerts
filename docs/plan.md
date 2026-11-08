@@ -233,7 +233,12 @@ Roles globales y acumulativos: cada uno puede todo lo del anterior.
 
 - Se chequea con una sola dependencia, `require_role(Role.technician)`. Los roles son un
   enum ordenado, así que el chequeo es una comparación.
-- `/auth/register` siempre crea un `client`. El primer admin se crea con un comando
+- `/auth/register` es público y siempre crea un `client` **sin organizaciones**: si
+  aceptara `organization_ids`, cualquiera podría sumarse a cualquier organización.
+  Para crear un usuario ya dentro de organizaciones está `POST /users`, que pide técnico.
+- `POST /organizations` acepta `member_ids` para crearla con miembros en una sola
+  llamada. Organización y membresías se insertan en la misma transacción.
+- El primer admin se crea con un comando
   (`python -m app.create_admin`); después los admins promueven a otros.
 - Los puntos particulares de un cliente los crea un técnico, igual que los de una
   organización: el cliente solo consulta.
@@ -325,10 +330,11 @@ La columna **Rol** es el mínimo necesario.
 | `POST` | `/auth/token` | — | Login con email o teléfono, devuelve el token |
 | `GET` | `/me` | client | Usuario actual, rol y organizaciones |
 | `GET` | `/users` | technician | Listar usuarios |
+| `POST` | `/users` | technician | Crear usuario, opcionalmente ya dentro de organizaciones (`organization_ids`) |
 | `PATCH` | `/users/{id}` | admin | Cambiar rol |
 | `DELETE` | `/users/{id}` | admin | Eliminar usuario |
 | `GET` | `/organizations` | client | Las mías (técnico/admin: todas) |
-| `POST` | `/organizations` | technician | Crear organización |
+| `POST` | `/organizations` | technician | Crear organización, opcionalmente con miembros (`member_ids`) |
 | `PATCH` | `/organizations/{id}` | technician | Renombrar |
 | `DELETE` | `/organizations/{id}` | admin | Eliminar |
 | `GET` | `/organizations/{id}/members` | client | Miembros |
@@ -403,7 +409,8 @@ flowchart LR
 
 ### Fase 0 — Setup
 - [ ] `pyproject.toml` con uv, ruff y pytest configurados
-- [ ] `docker-compose.yml` con Postgres
+- [ ] `Dockerfile` (Python 3.12 + uv) y `docker-compose.yml` con Postgres y la API
+- [ ] Todo corre con `docker compose`; `uv` local es opcional para el editor y correr tests rápido
 - [ ] `app/config.py` y `app/db.py`
 - [ ] `app/main.py` con `/health`
 - [ ] Fixture de tests: base de test, transacción por test con rollback
@@ -423,8 +430,8 @@ flowchart LR
 - [ ] `app/auth.py`: hash argon2, emitir y validar JWT, `current_user`, `require_role`
 - [ ] `create_admin.py`
 - [ ] `/auth/register`, `/auth/token` (email o teléfono), `/me`
-- [ ] Usuarios (listar, cambiar rol, eliminar)
-- [ ] Organizaciones y miembros
+- [ ] Usuarios (listar, crear con organizaciones, cambiar rol, eliminar)
+- [ ] Organizaciones (crear con miembros) y miembros
 - [ ] Puntos de medición particulares y de organización, con estado
 - [ ] Muestras: consultar, cambiar estado, eliminar
 - [ ] CRUD de alertas
@@ -432,6 +439,7 @@ flowchart LR
 - [ ] CORS por entorno
 - **Test:** registro, login con email y con teléfono, contraseña incorrecta, token vencido o adulterado
 - **Test:** camino feliz de cada endpoint
+- **Test:** crear organización con un `member_id` inexistente no deja nada a medias
 - **Test:** permisos: cada endpoint con el rol justo debajo del mínimo devuelve 403
 - **Test:** aislamiento: un cliente no ve puntos ajenos, puntos o muestras que no estén `active`, ni alertas o avisos de otros
 - **Test:** 409 por duplicados, 422 por umbral fuera de rango
@@ -459,7 +467,7 @@ flowchart LR
 
 ### Fase 5 — Mocks y Docker
 - [ ] `mocks/seed.py` y `mocks/fake_ingest.py`
-- [ ] `Dockerfile` único; compose con `db`, `migrate`, `api`, `worker`, `fake_ingest`
+- [ ] Compose completo: `db`, `migrate`, `api`, `worker`, `fake_ingest`
 - **Test:** `docker compose up` desde cero deja la API respondiendo y el worker
   avisando y re-avisando en los logs
 - **Revisión:** seguir el README en una máquina limpia
