@@ -7,6 +7,8 @@ os.environ["DATABASE_URL"] = os.environ.get(
 )
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -16,6 +18,16 @@ from app.main import app
 
 # NullPool: each test runs on its own event loop, so pooled connections can't be reused.
 engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
+
+
+@pytest.fixture(scope="session")
+def alembic_config():
+    return Config("alembic.ini")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def migrated_database(alembic_config):
+    command.upgrade(alembic_config, "head")
 
 
 @pytest.fixture
