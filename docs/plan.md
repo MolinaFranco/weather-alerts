@@ -5,48 +5,62 @@ Documento vivo. Cada tarea se tilda al cerrarse (tests en verde + revisión hech
 - [1. Alcance](#1-alcance)
 - [2. Arquitectura](#2-arquitectura)
 - [3. Modelo de datos](#3-modelo-de-datos)
-- [4. Flujo del job](#4-flujo-del-job)
-- [5. API](#5-api)
-- [6. Estructura del repo](#6-estructura-del-repo)
-- [7. Fases](#7-fases)
-- [8. Estrategia de tests](#8-estrategia-de-tests)
-- [9. Revisiones](#9-revisiones)
-- [10. Fuera de alcance](#10-fuera-de-alcance)
+- [4. Autenticación y roles](#4-autenticación-y-roles)
+- [5. Evaluación y re-notificación](#5-evaluación-y-re-notificación)
+- [6. Mock de la ingesta](#6-mock-de-la-ingesta)
+- [7. API](#7-api)
+- [8. Estructura del repo](#8-estructura-del-repo)
+- [9. Fases](#9-fases)
+- [10. Estrategia de tests](#10-estrategia-de-tests)
+- [11. Revisiones](#11-revisiones)
+- [12. Fuera de alcance](#12-fuera-de-alcance)
+- [13. Preguntas para el cliente](#13-preguntas-para-el-cliente)
 
 ---
 
 ## 1. Alcance
 
-Un usuario configura alertas sobre sus campos (tipo de evento + umbral de probabilidad).
-Un job en background cruza periódicamente esas alertas con los pronósticos guardados y,
-cuando un pronóstico supera el umbral, genera una notificación y la envía.
+Los usuarios tienen puntos de medición propios o compartidos a través de organizaciones
+(un establecimiento, una empresa). Cada usuario configura alertas sobre los puntos que
+ve: tipo de evento climático y umbral de probabilidad. Un job en background cruza las
+alertas con las muestras (los pronósticos guardados) y avisa al usuario cuando se supera
+el umbral, y otra vez si la probabilidad sigue subiendo.
+
+Hay tres tipos de usuario: **clientes**, que consultan y configuran sus alertas, y
+**técnicos** y **administradores**, que gestionan puntos, organizaciones y muestras.
+Puntos y muestras pueden estar **en testing** o **inhabilitados**: el cliente no los ve
+y no disparan alertas.
+
+La API se diseña pensando en un cliente web a futuro: login con email o teléfono,
+token Bearer y CORS configurable. El bot de WhatsApp sería otro cliente de la misma API.
 
 | Pide el challenge | Cómo lo resolvemos |
 |---|---|
-| Código production-ready | Migraciones, constraints en la base, config por env, logs, Docker, CI |
-| Modelo de datos sólido | 5 tablas con FKs, uniques y checks; enum de eventos |
+| Código production-ready | Migraciones, constraints en la base, auth con roles, config por env, logs, Docker, CI |
+| Modelo de datos sólido | 7 tablas con FKs, uniques, checks, enums y un trigger |
 | Asincronía | SQLAlchemy async + asyncpg, worker asyncio |
-| Endpoints | CRUD de alertas, alta de usuarios y campos, listado de notificaciones |
+| Endpoints | Auth, usuarios, organizaciones, puntos, muestras, alertas, notificaciones |
 | Background job | Proceso `worker` que evalúa y despacha en loop |
-| Datos meteorológicos mockeados | Script de seed |
+| Datos meteorológicos mockeados | `seed` + `fake_ingest` que imita al job existente |
 | README, migraciones, tests | Fase 6, fase 1, todas las fases |
 
 ## 2. Arquitectura
 
 ```mermaid
 flowchart LR
-    U([Usuario / bot de WhatsApp]) -->|HTTP| API[API FastAPI]
+    WEB([Web futura]) -->|Bearer token| API[API FastAPI]
+    BOT([Bot WhatsApp futuro]) -->|Bearer token| API
     API --> DB[(PostgreSQL)]
-    ING[Ingesta meteorológica<br/><i>existente, acá: seed</i>] -->|upsert| DB
+    ING[Ingesta meteorológica<br/><i>existente · acá: fake_ingest</i>] -->|upsert| DB
     subgraph W[Worker]
         EV[Evaluador] --> DS[Dispatcher]
     end
     W <-->|cada N segundos| DB
-    DS --> N[Notifier<br/><i>LogNotifier hoy,<br/>WhatsApp mañana</i>]
+    DS --> N[Notifier<br/><i>LogNotifier hoy</i>]
 ```
 
-Dos procesos con el mismo código: **api** y **worker**. Se comunican solo a través de la
-base. El worker hace dos pasos separados:
+Dos procesos con el mismo código, **api** y **worker**, que solo se hablan a través de
+la base. El worker hace dos pasos separados:
 
 1. **Evaluar**: detecta alertas superadas y deja una fila `pending` en `notifications`.
 2. **Despachar**: toma las `pending`, las envía y las marca `sent` o `failed`.
@@ -58,34 +72,57 @@ duplicar avisos.
 
 ```mermaid
 erDiagram
-    users ||--o{ fields : owns
-    fields ||--o{ weather_forecasts : has
-    fields ||--o{ alerts : has
+    users ||--o{ memberships : has
+    organizations ||--o{ memberships : has
+    organizations ||--o{ measurement_points : owns
+    users ||--o{ measurement_points : owns
+    measurement_points ||--o{ weather_forecasts : has
+    users ||--o{ alerts : configures
+    measurement_points ||--o{ alerts : watched_by
     alerts ||--o{ notifications : triggers
 
     users {
         int id PK
         string name
-        string phone UK
+        string email UK "login web"
+        string phone UK "E.164, WhatsApp y login"
+        string password_hash
+        user_role role "client | technician | admin"
         timestamptz created_at
     }
-    fields {
+    organizations {
         int id PK
-        int user_id FK
         string name
+        timestamptz created_at
+    }
+    memberships {
+        int user_id PK,FK
+        int organization_id PK,FK
+        timestamptz created_at
+    }
+    measurement_points {
+        int id PK
+        int organization_id FK "null si es particular"
+        int user_id FK "null si es de una organización"
+        string name "ej: el nombre del campo"
+        numeric latitude
+        numeric longitude
+        data_status status "active | testing | disabled"
         timestamptz created_at
     }
     weather_forecasts {
         int id PK
-        int field_id FK
+        int point_id FK
         date forecast_date
         event_type event_type
         smallint probability "0..100"
+        data_status status "active | testing | disabled"
         timestamptz updated_at
     }
     alerts {
         int id PK
-        int field_id FK
+        int user_id FK
+        int point_id FK
         event_type event_type
         smallint threshold "1..100"
         bool is_active
@@ -102,23 +139,145 @@ erDiagram
     }
 ```
 
+Cada fila de `weather_forecasts` es una **muestra**: la probabilidad de un evento para un
+día en un punto, tal como la deja la ingesta.
+
+Quién es dueño de qué:
+
+- **Un usuario puede estar en varias organizaciones** (ej. un agrónomo que asesora
+  varios campos) a través de `memberships`. Una organización puede existir sin miembros.
+- **Un punto es de una organización o de un usuario**, nunca de los dos.
+- **Las alertas son de cada usuario**, sobre cualquier punto que pueda ver, y el aviso
+  le llega a él.
+- **La ingesta escribe** `weather_forecasts`; lee `measurement_points` para saber qué
+  coordenadas consultar.
+
+Qué ve cada uno:
+
+| | Puntos | Muestras |
+|---|---|---|
+| Cliente | Sus particulares y los de sus organizaciones, solo `active` | Solo `active` de esos puntos |
+| Técnico / admin | Todos, en cualquier estado | Todas, en cualquier estado |
+
+Las reglas de visibilidad viven en una sola consulta de "puntos visibles" que reusan
+todas las rutas.
+
+### Estado de puntos y muestras
+
+Un solo enum `data_status = active | testing | disabled` para los dos.
+
+- Un técnico pone un punto en `testing` mientras se instala o calibra, o en `disabled`
+  si deja de usarse.
+- **Las muestras que llegan a un punto no activo heredan su estado.** Lo hace un trigger
+  de Postgres (`BEFORE INSERT OR UPDATE` en `weather_forecasts`): la ingesta es un
+  sistema externo que no controlamos, así que la regla tiene que vivir en la base y no
+  en nuestro código.
+- Una muestra conserva su estado aunque el punto después pase a activo: los datos de
+  prueba siguen siendo de prueba.
+- Un técnico también puede marcar una muestra puntual como `testing` o `disabled`
+  (ej. un valor anómalo).
+- **Solo muestras `active` de puntos `active` disparan alertas.**
+
 Constraints clave:
 
 | Tabla | Constraint | Para qué |
 |---|---|---|
-| `weather_forecasts` | `UNIQUE(field_id, forecast_date, event_type)` | Una entrada por día y evento; la ingesta hace upsert |
+| `users` | `UNIQUE(phone)`, `UNIQUE(email)` | Identifican al usuario en el login |
+| `memberships` | `PRIMARY KEY(user_id, organization_id)` | Sin membresías repetidas |
+| `measurement_points` | `CHECK(num_nonnulls(organization_id, user_id) = 1)` | Exactamente un dueño |
+| `measurement_points` | `UNIQUE(organization_id, name)`, `UNIQUE(user_id, name)` | Nombres sin repetir por dueño (los `NULL` no chocan entre sí) |
+| `weather_forecasts` | `UNIQUE(point_id, forecast_date, event_type)` | Una muestra por día y evento; la ingesta hace upsert |
 | `weather_forecasts` | `CHECK(probability BETWEEN 0 AND 100)` | |
-| `alerts` | `UNIQUE(field_id, event_type)` | Una alerta por evento y campo |
+| `weather_forecasts` | trigger `inherit_point_status` | Muestras de puntos no activos heredan el estado |
+| `alerts` | `UNIQUE(user_id, point_id, event_type)` | Una alerta por usuario, punto y evento |
 | `alerts` | `CHECK(threshold BETWEEN 1 AND 100)` | |
-| `notifications` | `UNIQUE(alert_id, forecast_date)` | **Idempotencia**: un aviso por alerta y día |
-| todas | `ON DELETE CASCADE` en FKs hacia el padre | Borrar un campo limpia sus alertas |
+| `notifications` | `UNIQUE(alert_id, forecast_date, probability)` | Idempotencia: el mismo aviso nunca se genera dos veces |
+| todas | `ON DELETE CASCADE` hacia el padre | Borrar un punto limpia sus muestras y alertas |
 
-Enums: `event_type = frost | rain | hail | strong_wind | heat_wave`,
+Enums: `user_role = client | technician | admin`, `data_status = active | testing | disabled`,
+`event_type = frost | rain | hail | strong_wind | heat_wave`,
 `notification_status = pending | sent | failed`.
 
-Índices: además de los uniques, `notifications(status)` parcial donde `status = 'pending'`.
+## 4. Autenticación y roles
 
-## 4. Flujo del job
+```mermaid
+sequenceDiagram
+    participant C as Cliente (web / bot)
+    participant A as API
+    participant DB as PostgreSQL
+    C->>A: POST /auth/token (username = email o teléfono, password)
+    A->>DB: buscar usuario por email o teléfono
+    A->>A: verificar hash argon2
+    A-->>C: access_token (JWT, 60 min)
+    C->>A: PATCH /points/7 · Authorization: Bearer ...
+    A->>A: validar token y rol >= technician
+    A-->>C: 200 / 403
+```
+
+- **Login con email o teléfono + contraseña.** La web usaría email y WhatsApp el
+  teléfono; la API acepta cualquiera de los dos en el campo `username`.
+- **Teléfono y email obligatorios.** Los avisos salen por WhatsApp; el email queda
+  para la web y para un futuro canal de avisos.
+- **Contraseñas con argon2** (`pwdlib`), **tokens JWT** (`PyJWT`) firmados con una clave
+  de entorno. Flujo OAuth2 password estándar de FastAPI: funciona en el botón
+  *Authorize* de `/docs` y en cualquier SPA.
+- **CORS** configurable por entorno para la futura web.
+
+Roles globales y acumulativos: cada uno puede todo lo del anterior.
+
+| Rol | Puede |
+|---|---|
+| `client` | Consultar sus puntos y muestras; gestionar sus propias alertas y ver sus avisos |
+| `technician` | + crear y modificar organizaciones, miembros y puntos; cambiar el estado de puntos y muestras |
+| `admin` | + eliminar; cambiar el rol de un usuario |
+
+- Se chequea con una sola dependencia, `require_role(Role.technician)`. Los roles son un
+  enum ordenado, así que el chequeo es una comparación.
+- `/auth/register` siempre crea un `client`. El primer admin se crea con un comando
+  (`python -m app.create_admin`); después los admins promueven a otros.
+- Los puntos particulares de un cliente los crea un técnico, igual que los de una
+  organización: el cliente solo consulta.
+- Sin acceso a un recurso que no ve → `404`, para no revelar que existe. Ve el recurso
+  pero su rol no alcanza para la acción → `403`.
+
+## 5. Evaluación y re-notificación
+
+Regla: se avisa cuando la probabilidad alcanza el umbral, y **se vuelve a avisar si sube
+al menos `RENOTIFY_STEP` puntos** (por defecto 15) sobre el último aviso de esa alerta y
+ese día. Si baja, no se avisa.
+
+> Umbral 60 · pronóstico 65 → aviso · sube a 70 → nada · sube a 85 → aviso
+
+Todo es una sola consulta:
+
+```sql
+INSERT INTO notifications (alert_id, forecast_date, probability)
+SELECT a.id, f.forecast_date, f.probability
+FROM alerts a
+JOIN measurement_points p ON p.id = a.point_id
+JOIN weather_forecasts f
+  ON f.point_id = a.point_id AND f.event_type = a.event_type
+LEFT JOIN LATERAL (
+  SELECT max(n.probability) AS last_notified
+  FROM notifications n
+  WHERE n.alert_id = a.id AND n.forecast_date = f.forecast_date
+) prev ON true
+WHERE a.is_active
+  AND p.status = 'active'
+  AND f.status = 'active'
+  AND f.forecast_date >= :today
+  AND f.probability >= a.threshold
+  AND (prev.last_notified IS NULL OR f.probability >= prev.last_notified + :step)
+ON CONFLICT DO NOTHING;
+```
+
+- Solo muestras `active` de puntos `active`: los datos de prueba nunca avisan a nadie.
+- Solo se avisa cuando la probabilidad sube, así que el máximo notificado es siempre
+  el último aviso.
+- Si dos workers evalúan a la vez, calculan la misma fila y el `UNIQUE` hace que la base
+  rechace la segunda.
+- `:today` se calcula en la zona horaria configurada (`TIMEZONE`), no en UTC: a las
+  22 h en Argentina, en UTC ya es mañana.
 
 ```mermaid
 sequenceDiagram
@@ -131,65 +290,94 @@ sequenceDiagram
 
     loop cada EVALUATION_INTERVAL segundos
         L->>E: run()
-        E->>DB: INSERT INTO notifications SELECT ... <br/>FROM alerts JOIN weather_forecasts<br/>WHERE is_active AND date >= today<br/>AND probability >= threshold<br/>ON CONFLICT DO NOTHING
-        DB-->>E: filas nuevas
+        E->>DB: INSERT ... SELECT (consulta de arriba)
         L->>D: run()
         D->>DB: SELECT pending FOR UPDATE SKIP LOCKED LIMIT n
         loop por cada notificación
             D->>N: send(notification)
-            N-->>D: ok / error
             D->>DB: status = sent | failed
         end
     end
 ```
 
-Estados de una notificación:
+## 6. Mock de la ingesta
 
-```mermaid
-stateDiagram-v2
-    [*] --> pending: el evaluador detecta umbral superado
-    pending --> sent: envío ok
-    pending --> failed: envío con error
-    sent --> [*]
-    failed --> [*]
-```
+El job de ingesta ya existe en el sistema real; acá lo reemplazamos con dos comandos que
+**no son parte de la solución** y viven aparte (`app/mocks/`):
 
-## 5. API
-
-| Método | Ruta | Qué hace |
+| Comando | Qué hace | Cuándo corre |
 |---|---|---|
-| `POST` | `/users` | Alta de usuario |
-| `POST` | `/users/{user_id}/fields` | Alta de campo |
-| `GET` | `/users/{user_id}/fields` | Campos del usuario |
-| `POST` | `/fields/{field_id}/alerts` | Crear alerta (`event_type`, `threshold`) |
-| `GET` | `/fields/{field_id}/alerts` | Alertas del campo |
-| `PATCH` | `/alerts/{alert_id}` | Cambiar umbral o activar/desactivar |
-| `DELETE` | `/alerts/{alert_id}` | Borrar alerta |
-| `GET` | `/users/{user_id}/notifications` | Avisos del usuario, más nuevos primero |
-| `GET` | `/health` | Liveness + ping a la base |
+| `python -m app.mocks.seed` | Un admin, un técnico y dos clientes; una organización con puntos compartidos, un punto particular y uno en testing; algunas alertas | Una vez |
+| `python -m app.mocks.fake_ingest` | Upsert de pronósticos de los próximos 7 días para cada punto. Las probabilidades se mueven de a poco en cada pasada | En loop, como servicio de compose |
 
-Errores: `404` si el padre no existe, `409` si la alerta ya existe para ese evento,
-`422` validación de Pydantic.
+Como las probabilidades cambian con el tiempo, con `docker compose up` se ve en los logs
+del worker tanto el primer aviso como las re-notificaciones. Los tests no usan el mock:
+cargan sus pronósticos a mano para ser deterministas.
 
-## 6. Estructura del repo
+## 7. API
+
+Todas las rutas salvo `/auth/*` y `/health` piden `Authorization: Bearer <token>`.
+La columna **Rol** es el mínimo necesario.
+
+| Método | Ruta | Rol | Qué hace |
+|---|---|---|---|
+| `POST` | `/auth/register` | — | Crear usuario `client` (nombre, teléfono, email, contraseña) |
+| `POST` | `/auth/token` | — | Login con email o teléfono, devuelve el token |
+| `GET` | `/me` | client | Usuario actual, rol y organizaciones |
+| `GET` | `/users` | technician | Listar usuarios |
+| `PATCH` | `/users/{id}` | admin | Cambiar rol |
+| `DELETE` | `/users/{id}` | admin | Eliminar usuario |
+| `GET` | `/organizations` | client | Las mías (técnico/admin: todas) |
+| `POST` | `/organizations` | technician | Crear organización |
+| `PATCH` | `/organizations/{id}` | technician | Renombrar |
+| `DELETE` | `/organizations/{id}` | admin | Eliminar |
+| `GET` | `/organizations/{id}/members` | client | Miembros |
+| `POST` | `/organizations/{id}/members` | technician | Sumar un usuario |
+| `DELETE` | `/organizations/{id}/members/{user_id}` | technician | Quitar un usuario |
+| `GET` | `/points` | client | Puntos visibles |
+| `POST` | `/points` | technician | Crear punto (de una organización o de un usuario) |
+| `PATCH` | `/points/{id}` | technician | Nombre, coordenadas, estado |
+| `DELETE` | `/points/{id}` | admin | Eliminar punto |
+| `GET` | `/points/{id}/forecasts` | client | Muestras del punto (cliente: solo `active`), filtrable por fecha |
+| `PATCH` | `/forecasts/{id}` | technician | Cambiar estado de una muestra |
+| `DELETE` | `/forecasts/{id}` | admin | Eliminar una muestra |
+| `GET` | `/alerts` | client | Mis alertas |
+| `POST` | `/alerts` | client | Crear alerta (punto visible, evento, umbral) |
+| `PATCH` | `/alerts/{id}` | client | Cambiar umbral o activar/desactivar |
+| `DELETE` | `/alerts/{id}` | client | Borrar alerta |
+| `GET` | `/notifications` | client | Mis avisos, más nuevos primero (`limit`, `offset`) |
+| `GET` | `/health` | — | Liveness + ping a la base |
+
+Errores: `401` sin token o token inválido, `403` rol insuficiente, `404` no existe o no
+lo veo, `409` duplicado, `422` validación.
+
+## 8. Estructura del repo
 
 ```
 app/
-  main.py          # crea la app y registra routers
-  config.py        # settings desde env
-  db.py            # engine y sesión async
-  models.py        # tablas SQLAlchemy
-  schemas.py       # modelos Pydantic de entrada/salida
+  main.py            # crea la app, CORS y routers
+  config.py          # settings desde env
+  db.py              # engine y sesión async
+  models.py          # tablas SQLAlchemy
+  schemas.py         # modelos Pydantic
+  auth.py            # hash, JWT, current_user y require_role
+  create_admin.py    # comando para crear el primer admin
   routes/
+    auth.py
     users.py
+    organizations.py
+    points.py
+    forecasts.py
     alerts.py
     notifications.py
-  alerts/
-    evaluator.py   # la query de evaluación
-    dispatcher.py  # envío de pendientes
-    notifier.py    # interfaz Notifier + LogNotifier
-  worker.py        # loop del job
-  seed.py          # pronósticos mock
+  jobs/
+    evaluator.py     # la consulta de evaluación
+    dispatcher.py    # envío de pendientes
+    notifier.py      # Notifier (Protocol) + LogNotifier
+  worker.py          # loop del job
+  mocks/
+    seed.py
+    fake_ingest.py
 alembic/
 tests/
 docker-compose.yml
@@ -200,17 +388,17 @@ README.md
 
 Ningún archivo debería pasar ~150 líneas.
 
-## 7. Fases
+## 9. Fases
 
 ```mermaid
 flowchart LR
     F0[0 · Setup] --> F1[1 · Modelo]
-    F1 --> F2[2 · API]
+    F1 --> F2[2 · Auth y API]
     F1 --> F3[3 · Evaluador]
     F3 --> F4[4 · Envío y worker]
-    F2 --> F5[5 · Seed y Docker]
+    F2 --> F5[5 · Mocks y Docker]
     F4 --> F5
-    F5 --> F6[6 · README y revisión final]
+    F5 --> F6[6 · README y cierre]
 ```
 
 ### Fase 0 — Setup
@@ -224,29 +412,41 @@ flowchart LR
 - **Revisión:** ¿la configuración tiene solo lo que se usa?
 
 ### Fase 1 — Modelo de datos
-- [ ] `app/models.py` con las 5 tablas, enums y constraints
-- [ ] Alembic inicializado (async) y primera migración
+- [ ] `app/models.py` con las 7 tablas, enums y constraints
+- [ ] Alembic inicializado (async) y primera migración, con el trigger de estado
 - **Test:** `upgrade head` y `downgrade base` corren limpios
-- **Test:** los constraints rechazan datos inválidos (umbral 0, probabilidad 101, alerta duplicada)
-- **Revisión:** el ER del código coincide con el de la sección 3
+- **Test:** los constraints rechazan datos inválidos (umbral 0, probabilidad 101, duplicados, punto sin dueño)
+- **Test:** una muestra que llega a un punto en testing queda en testing, y sigue así cuando el punto se activa
+- **Revisión:** el código coincide con el diagrama de la sección 3
 
-### Fase 2 — API
-- [ ] Schemas Pydantic
-- [ ] Rutas de usuarios y campos
+### Fase 2 — Auth y API
+- [ ] `app/auth.py`: hash argon2, emitir y validar JWT, `current_user`, `require_role`
+- [ ] `create_admin.py`
+- [ ] `/auth/register`, `/auth/token` (email o teléfono), `/me`
+- [ ] Usuarios (listar, cambiar rol, eliminar)
+- [ ] Organizaciones y miembros
+- [ ] Puntos de medición particulares y de organización, con estado
+- [ ] Muestras: consultar, cambiar estado, eliminar
 - [ ] CRUD de alertas
-- [ ] Listado de notificaciones
+- [ ] Listado de notificaciones paginado
+- [ ] CORS por entorno
+- **Test:** registro, login con email y con teléfono, contraseña incorrecta, token vencido o adulterado
 - **Test:** camino feliz de cada endpoint
-- **Test:** 404 por padre inexistente, 409 por duplicado, 422 por umbral fuera de rango
-- **Revisión:** ¿los handlers son finos? ¿algún endpoint que no se pidió?
+- **Test:** permisos: cada endpoint con el rol justo debajo del mínimo devuelve 403
+- **Test:** aislamiento: un cliente no ve puntos ajenos, puntos o muestras que no estén `active`, ni alertas o avisos de otros
+- **Test:** 409 por duplicados, 422 por umbral fuera de rango
+- **Revisión:** ¿handlers finos? ¿algún endpoint que no se pidió?
 
 ### Fase 3 — Evaluador
-- [ ] `evaluate()`: un solo `INSERT ... SELECT ... ON CONFLICT DO NOTHING`
+- [ ] `evaluate()`: la consulta de la sección 5
 - **Test:** probabilidad >= umbral genera aviso; menor no
-- **Test:** alerta inactiva no genera aviso
-- **Test:** fechas pasadas se ignoran
-- **Test:** correr dos veces no duplica (idempotencia)
+- **Test:** alerta inactiva no genera aviso; fechas pasadas se ignoran
+- **Test:** muestras en testing o disabled, o de puntos no activos, no generan aviso
+- **Test:** correr dos veces sin cambios no duplica
+- **Test:** sube menos que `RENOTIFY_STEP` → nada; sube más → segundo aviso; baja → nada
 - **Test:** dos evaluaciones concurrentes no duplican
-- **Revisión:** leer la query en voz alta; ¿se entiende sin comentarios?
+- **Test:** `today` respeta `TIMEZONE`
+- **Revisión:** ¿la consulta se entiende sin comentarios?
 
 ### Fase 4 — Envío y worker
 - [ ] `Notifier` (Protocol) + `LogNotifier`
@@ -254,43 +454,32 @@ flowchart LR
 - [ ] `worker.py`: loop, intervalo por env, apagado limpio con SIGTERM
 - **Test:** pendientes pasan a `sent`; si el notifier falla, a `failed`
 - **Test:** un fallo no frena el resto del lote
-- **Test:** un ciclo completo del worker (evaluar + despachar) con un notifier falso
+- **Test:** un ciclo completo (evaluar + despachar) con un notifier falso
 - **Revisión:** ¿el worker sobrevive a un error de base en un ciclo?
 
-### Fase 5 — Seed y Docker
-- [ ] `seed.py`: usuarios, campos y pronósticos para los próximos 7 días
-- [ ] `Dockerfile` único; `docker-compose.yml` con `db`, `migrate`, `api`, `worker`
+### Fase 5 — Mocks y Docker
+- [ ] `mocks/seed.py` y `mocks/fake_ingest.py`
+- [ ] `Dockerfile` único; compose con `db`, `migrate`, `api`, `worker`, `fake_ingest`
 - **Test:** `docker compose up` desde cero deja la API respondiendo y el worker
-  generando avisos en los logs
+  avisando y re-avisando en los logs
 - **Revisión:** seguir el README en una máquina limpia
 
 ### Fase 6 — README y cierre
 - [ ] README: qué es, cómo correrlo, decisiones, qué faltó, mejoras futuras
-- [ ] Diagramas finales (ER y flujo) en el README
-- [ ] Revisión final completa (sección 9)
+- [ ] Diagramas finales (modelo y flujo) en el README
+- [ ] Revisión final completa (sección 11)
 
-## 8. Estrategia de tests
+## 10. Estrategia de tests
 
-```mermaid
-flowchart TB
-    subgraph Integración ["Integración (la mayoría)"]
-        T1[API con httpx.AsyncClient<br/>contra Postgres real]
-        T2[Evaluador y dispatcher<br/>contra Postgres real]
-    end
-    subgraph Unitarios ["Unitarios (pocos)"]
-        T3[Validación de schemas]
-    end
-    subgraph Smoke
-        T4[docker compose up]
-    end
-```
-
-- Postgres real en docker, nunca SQLite: usamos `ON CONFLICT`, enums y `SKIP LOCKED`.
+- Integración contra Postgres real en docker, nunca SQLite: usamos `ON CONFLICT`,
+  `LATERAL`, enums y `SKIP LOCKED`.
 - Cada test corre en una transacción que se descarta al final; no hay estado compartido.
-- Fábricas mínimas en `conftest.py` (`make_user`, `make_field`...), sin librerías extra.
-- Lo que no se testea: el `LogNotifier` (es un log) y el loop infinito en sí.
+- API con `httpx.AsyncClient`; un fixture da un cliente ya autenticado.
+- Fábricas mínimas en `conftest.py` (`make_user`, `make_org`, `make_point`...), sin
+  librerías extra.
+- Lo que no se testea: `LogNotifier` (es un log), el loop infinito y los mocks.
 
-## 9. Revisiones
+## 11. Revisiones
 
 Al cerrar **cada fase**:
 
@@ -298,23 +487,43 @@ Al cerrar **cada fase**:
 |---|---|
 | Tests y lint | `pytest` y `ruff` en verde, local y en CI |
 | Minimalismo | ¿Hay algo que el challenge no pidió? Se saca o va a mejoras futuras |
-| Legibilidad | Releer el diff como el entrevistador: cada archivo se entiende en una lectura |
+| Legibilidad | Releer el diff como un revisor externo: cada archivo se entiende en una lectura |
 | Tamaño | Ningún archivo > ~150 líneas, ninguna función > ~30 |
-| Base de datos | Toda regla de integridad tiene su constraint |
+| Base de datos | Toda regla de integridad que se pueda expresar tiene su constraint |
+| Seguridad | Todo endpoint tiene `current_user` o `require_role`; todo acceso a puntos pasa por la consulta de puntos visibles |
 | Commits | Chicos y con mensaje claro |
 
 **Revisión final** (fase 6), además:
 - Clonar el repo en limpio y seguir el README al pie de la letra.
 - Revisar `git log` completo: que cuente la historia del proyecto.
-- Lista de lo que faltó, honesta, en el README.
+- Lista honesta de lo que faltó en el README.
 
-## 10. Fuera de alcance
+## 12. Fuera de alcance
 
 Se documentan en el README como mejoras futuras, no se implementan:
 
-- Integración real con WhatsApp.
-- Autenticación (en producción la identidad la da el número validado por el bot).
-- Pronósticos por ubicación compartida en lugar de por campo.
-- Re-notificar si la probabilidad sube después del primer aviso.
+- **Permisos por organización y por punto**: hoy el rol es global. A futuro, un sistema
+  de permisos donde un usuario tenga distintos roles o permisos según la organización o
+  el punto de medición (ej. admin de su establecimiento, cliente en otro).
+- Integración real con WhatsApp (el bot sería un cliente más de la API).
+- Invitaciones con aceptación para sumarse a una organización.
+- Refresh tokens, recuperación de contraseña, verificación de email y teléfono.
+- Avisar cuando la probabilidad baja ("ya no se espera helada").
 - Reintentos automáticos con backoff para avisos `failed`.
-- Paginación en listados.
+- Historial de quién cambió el estado de un punto o una muestra.
+
+## 13. Preguntas para el cliente
+
+Decisiones de producto que tomamos con un supuesto razonable y conviene validar con quien
+va a usar el sistema:
+
+- **Puntos en testing:** hoy están ocultos para el cliente. ¿Prefiere verlos (ej. "en
+  instalación") aunque sin muestras?
+- **Canal de avisos:** hoy todos salen por WhatsApp. ¿Hay usuarios que preferirían
+  recibirlos por email?
+- **Re-notificación:** ¿15 puntos de subida es un buen salto, o depende del evento
+  (una helada al 40% ya preocupa)?
+- **Zona horaria:** ¿todos los campos están en Argentina, o hace falta zona horaria por
+  punto?
+- **Puntos particulares:** ¿un cliente debería poder dar de alta sus propios puntos, o
+  siempre los instala un técnico?
