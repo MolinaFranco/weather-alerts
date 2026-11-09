@@ -42,10 +42,14 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("uq_users_email_lower", func.lower(text("email")), unique=True),
+        CheckConstraint(r"phone ~ '^\+[1-9][0-9]{7,14}$'", name="phone_e164"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
-    email: Mapped[str] = mapped_column(String(255), unique=True)
+    email: Mapped[str] = mapped_column(String(255))
     phone: Mapped[str] = mapped_column(String(20), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(pg_enum(Role, "user_role"), server_default=Role.CLIENT)
@@ -67,14 +71,12 @@ class Membership(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     organization_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class MeasurementPoint(Base):
-    """Owned by either an organization or a single user, never both."""
-
     __tablename__ = "measurement_points"
     __table_args__ = (
         CheckConstraint("num_nonnulls(organization_id, user_id) = 1", name="single_owner"),
@@ -115,7 +117,8 @@ class WeatherForecast(Base):
     status: Mapped[DataStatus] = mapped_column(
         pg_enum(DataStatus, "data_status"), server_default=DataStatus.ACTIVE
     )
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    # Kept up to date by the sync_sample_status trigger, since the ingestion writes plain SQL.
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class Alert(Base):
@@ -127,7 +130,9 @@ class Alert(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    point_id: Mapped[int] = mapped_column(ForeignKey("measurement_points.id", ondelete="CASCADE"))
+    point_id: Mapped[int] = mapped_column(
+        ForeignKey("measurement_points.id", ondelete="CASCADE"), index=True
+    )
     event_type: Mapped[EventType] = mapped_column(pg_enum(EventType, "event_type"))
     threshold: Mapped[int] = mapped_column(SmallInteger)
     is_active: Mapped[bool] = mapped_column(server_default="true")

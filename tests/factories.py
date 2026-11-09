@@ -4,7 +4,15 @@ from itertools import count
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import EventType
-from app.models import Alert, MeasurementPoint, Organization, User, WeatherForecast
+from app.models import (
+    Alert,
+    MeasurementPoint,
+    Membership,
+    Notification,
+    Organization,
+    User,
+    WeatherForecast,
+)
 
 _sequence = count(1)
 
@@ -48,3 +56,14 @@ async def make_forecast(
 async def make_alert(session: AsyncSession, user: User, point: MeasurementPoint, **fields) -> Alert:
     defaults = {"event_type": EventType.FROST, "threshold": 60}
     return await _save(session, Alert(user_id=user.id, point_id=point.id, **defaults | fields))
+
+
+async def make_membership(
+    session: AsyncSession, user: User, organization: Organization
+) -> Membership:
+    return await _save(session, Membership(user_id=user.id, organization_id=organization.id))
+
+
+async def make_notification(session: AsyncSession, alert: Alert, **fields) -> Notification:
+    defaults = {"forecast_date": date.today(), "probability": 70}
+    return await _save(session, Notification(alert_id=alert.id, **defaults | fields))

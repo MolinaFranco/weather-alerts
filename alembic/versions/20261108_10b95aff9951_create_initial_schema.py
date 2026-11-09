@@ -1,34 +1,47 @@
 """create initial schema
 
-Revision ID: 6f0c292a790d
+Revision ID: 10b95aff9951
 Revises:
-Create Date: 2026-11-08 12:52:55.024252
+Create Date: 2026-11-08 23:57:59.741586
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-# The ingestion job is an external system, so the rule "samples from a point that is not
-# active inherit its status" has to live in the database rather than in our code.
-INHERIT_POINT_STATUS_FUNCTION = """
-CREATE FUNCTION inherit_point_status() RETURNS trigger AS $$
+# The ingestion job is an external system, so the status rules for samples have to live in
+# the database. New data takes the point's current status; a technician's manual mark on a
+# sample lasts until a new probability arrives for it.
+SYNC_SAMPLE_STATUS_FUNCTION = """
+CREATE FUNCTION sync_sample_status() RETURNS trigger AS $$
+DECLARE
+    point_status data_status;
 BEGIN
-    SELECT CASE WHEN point.status = 'active' THEN NEW.status ELSE point.status END
-    INTO NEW.status
-    FROM measurement_points AS point
-    WHERE point.id = NEW.point_id;
+    SELECT status INTO point_status FROM measurement_points WHERE id = NEW.point_id;
+    IF NOT FOUND THEN
+        RETURN NEW;  -- let the foreign key report the missing point
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        NEW.updated_at := now();
+    END IF;
+
+    IF point_status <> 'active' THEN
+        NEW.status := point_status;
+    ELSIF TG_OP = 'INSERT' OR NEW.probability IS DISTINCT FROM OLD.probability THEN
+        NEW.status := 'active';
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql
 """
 
-INHERIT_POINT_STATUS_TRIGGER = """
-CREATE TRIGGER weather_forecasts_inherit_point_status
+SYNC_SAMPLE_STATUS_TRIGGER = """
+CREATE TRIGGER weather_forecasts_sync_status
 BEFORE INSERT OR UPDATE ON weather_forecasts
-FOR EACH ROW EXECUTE FUNCTION inherit_point_status()
+FOR EACH ROW EXECUTE FUNCTION sync_sample_status()
 """
 
-revision = "6f0c292a790d"
+revision = "10b95aff9951"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -66,9 +79,12 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
+        sa.CheckConstraint("phone ~ '^\\+[1-9][0-9]{7,14}$'", name=op.f("ck_users_phone_e164")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
-        sa.UniqueConstraint("email", name=op.f("uq_users_email")),
         sa.UniqueConstraint("phone", name=op.f("uq_users_phone")),
+    )
+    op.create_index(
+        "uq_users_email_lower", "users", [sa.literal_column("lower(email)")], unique=True
     )
     op.create_table(
         "measurement_points",
@@ -139,6 +155,9 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("user_id", "organization_id", name=op.f("pk_memberships")),
     )
+    op.create_index(
+        op.f("ix_memberships_organization_id"), "memberships", ["organization_id"], unique=False
+    )
     op.create_table(
         "alerts",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -172,6 +191,7 @@ def upgrade() -> None:
             "user_id", "point_id", "event_type", name=op.f("uq_alerts_user_id_point_id_event_type")
         ),
     )
+    op.create_index(op.f("ix_alerts_point_id"), "alerts", ["point_id"], unique=False)
     op.create_table(
         "weather_forecasts",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -252,13 +272,13 @@ def upgrade() -> None:
         unique=False,
         postgresql_where=sa.text("status = 'pending'"),
     )
-    op.execute(INHERIT_POINT_STATUS_FUNCTION)
-    op.execute(INHERIT_POINT_STATUS_TRIGGER)
+    op.execute(SYNC_SAMPLE_STATUS_FUNCTION)
+    op.execute(SYNC_SAMPLE_STATUS_TRIGGER)
 
 
 def downgrade() -> None:
-    op.execute("DROP TRIGGER weather_forecasts_inherit_point_status ON weather_forecasts")
-    op.execute("DROP FUNCTION inherit_point_status")
+    op.execute("DROP TRIGGER weather_forecasts_sync_status ON weather_forecasts")
+    op.execute("DROP FUNCTION sync_sample_status")
     op.drop_index(
         "ix_notifications_pending",
         table_name="notifications",
@@ -266,9 +286,12 @@ def downgrade() -> None:
     )
     op.drop_table("notifications")
     op.drop_table("weather_forecasts")
+    op.drop_index(op.f("ix_alerts_point_id"), table_name="alerts")
     op.drop_table("alerts")
+    op.drop_index(op.f("ix_memberships_organization_id"), table_name="memberships")
     op.drop_table("memberships")
     op.drop_table("measurement_points")
+    op.drop_index("uq_users_email_lower", table_name="users")
     op.drop_table("users")
     op.drop_table("organizations")
     op.execute("DROP TYPE notification_status, event_type, data_status, user_role")
