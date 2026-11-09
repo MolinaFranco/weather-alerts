@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -33,6 +33,11 @@ async def integrity_error(request: Request, exc: IntegrityError) -> JSONResponse
         {"detail": "Refers to something that doesn't exist or breaks a rule"},
         status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    return RedirectResponse("/docs")
 
 
 @app.get("/health")

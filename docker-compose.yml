@@ -2,8 +2,13 @@ name: weather-alerts
 
 x-app-environment: &app-environment
   DATABASE_URL: postgresql+asyncpg://weather:weather@db:5432/weather
-  # Fine for running it locally; any real deployment needs its own long random secret.
   JWT_SECRET: ${JWT_SECRET:-local-compose-secret-not-for-production}
+
+# Every app service runs the same image with a different command.
+x-app: &app
+  build: .
+  image: weather-alerts
+  environment: *app-environment
 
 # The worker should evaluate about as often as new forecasts arrive. In this demo they come
 # from fake_ingest, so both share one interval, short enough to see notices quickly.
@@ -28,33 +33,32 @@ services:
       retries: 15
 
   migrate:
-    build: .
+    <<: *app
     command: alembic upgrade head
-    environment: *app-environment
     depends_on:
       db:
         condition: service_healthy
 
   api:
-    build: .
-    environment: *app-environment
+    <<: *app
+    restart: unless-stopped
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
 
   seed:
-    build: .
+    <<: *app
     command: python -m app.mocks.seed
-    environment: *app-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
 
   fake_ingest:
-    build: .
+    <<: *app
     command: python -m app.mocks.fake_ingest
+    restart: unless-stopped
     environment:
       <<: *app-environment
       INGEST_INTERVAL: *demo-interval
@@ -63,8 +67,9 @@ services:
         condition: service_completed_successfully
 
   worker:
-    build: .
+    <<: *app
     command: python -m app.worker
+    restart: unless-stopped
     environment:
       <<: *app-environment
       EVALUATION_INTERVAL: *demo-interval
