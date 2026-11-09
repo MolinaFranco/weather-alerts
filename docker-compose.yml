@@ -5,6 +5,10 @@ x-app-environment: &app-environment
   # Fine for running it locally; any real deployment needs its own long random secret.
   JWT_SECRET: ${JWT_SECRET:-local-compose-secret-not-for-production}
 
+# The worker should evaluate about as often as new forecasts arrive. In this demo they come
+# from fake_ingest, so both share one interval, short enough to see notices quickly.
+x-demo-interval: &demo-interval "10"
+
 services:
   db:
     image: postgres:16-alpine
@@ -36,6 +40,34 @@ services:
     environment: *app-environment
     ports:
       - "${API_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  seed:
+    build: .
+    command: python -m app.mocks.seed
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  fake_ingest:
+    build: .
+    command: python -m app.mocks.fake_ingest
+    environment:
+      <<: *app-environment
+      INGEST_INTERVAL: *demo-interval
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    command: python -m app.worker
+    environment:
+      <<: *app-environment
+      EVALUATION_INTERVAL: *demo-interval
     depends_on:
       migrate:
         condition: service_completed_successfully
