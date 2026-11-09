@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from sqlalchemy import select, update
 
 from app.enums import DataStatus, EventType
-from app.jobs.evaluator import evaluate, local_today
+from app.jobs.evaluator import evaluate
 from app.models import Notification, WeatherForecast
 from tests.factories import make_alert, make_forecast, make_point, make_user
 
@@ -181,8 +181,3 @@ async def test_evaluations_take_turns(committed_sessions):
     assert await second == 0
     async with committed_sessions() as session:
         assert await notified(session, alert) == [70]
-
-
-def test_today_depends_on_the_timezone():
-    # 25 hours apart, so these two never share a date.
-    assert local_today("Pacific/Kiritimati") > local_today("Pacific/Pago_Pago")

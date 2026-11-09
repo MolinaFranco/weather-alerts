@@ -1,5 +1,4 @@
-from datetime import date, datetime
-from zoneinfo import ZoneInfo
+from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,10 +38,6 @@ EVALUATE_ALERTS = text("""
            OR forecast.probability >= notified.max_probability + :step)
     ON CONFLICT (alert_id, forecast_date, probability) DO NOTHING
 """)
-
-
-def local_today(timezone: str) -> date:
-    return datetime.now(ZoneInfo(timezone)).date()
 
 
 async def evaluate(session: AsyncSession, today: date, renotify_step: int) -> int:

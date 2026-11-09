@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     timezone: str = "America/Argentina/Buenos_Aires"
     # Percentage points above the last notice needed to notify again.
     renotify_step: int = Field(default=15, ge=1)
+    # Seconds between worker cycles. Should follow how often the ingestion writes forecasts.
+    evaluation_interval: float = Field(default=60, gt=0)
 
 
 settings = Settings()
