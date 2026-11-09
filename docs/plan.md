@@ -477,8 +477,8 @@ afuera es gestión, no lo que se evalúa.
 - **Revisión:** ¿handlers finos? ¿algún endpoint que no se pidió?
 
 ### Fase 5 — Mocks y Docker
-- [ ] `mocks/seed.py` y `mocks/fake_ingest.py`
-- [ ] Compose completo: sumar `worker` y `fake_ingest` (`migrate` ya está desde la fase 1)
+- [x] `mocks/seed.py` y `mocks/fake_ingest.py`
+- [x] Compose completo: sumar `worker` y `fake_ingest` (`migrate` ya está desde la fase 1)
 - **Test:** `docker compose up` desde cero deja la API respondiendo y el worker
   avisando y re-avisando en los logs
 - **Revisión:** seguir el README en una máquina limpia
