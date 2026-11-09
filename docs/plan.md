@@ -436,7 +436,7 @@ afuera es gestión, no lo que se evalúa.
 - **Revisión:** el código coincide con el diagrama de la sección 3
 
 ### Fase 2 — Evaluador
-- [ ] `evaluate()`: la consulta de la sección 5
+- [x] `evaluate()`: la consulta de la sección 5
 - **Test:** probabilidad >= umbral genera aviso; menor no
 - **Test:** alerta inactiva no genera aviso; fechas pasadas se ignoran
 - **Test:** muestras en testing o disabled, o de puntos no activos, no generan aviso
