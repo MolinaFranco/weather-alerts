@@ -458,16 +458,16 @@ afuera es gestión, no lo que se evalúa.
 - **Revisión:** ¿el worker sobrevive a un error de base en un ciclo?
 
 ### Fase 4 — Auth y API
-- [ ] `app/auth.py`: hash argon2, emitir y validar JWT, `current_user`, `require_role`
-- [ ] `create_admin.py`
-- [ ] `/auth/register`, `/auth/token` (email o teléfono), `/me`
-- [ ] Usuarios (listar, crear con organizaciones, cambiar rol, eliminar)
-- [ ] Organizaciones (crear con miembros) y miembros
-- [ ] Puntos de medición particulares y de organización, con estado
-- [ ] Muestras: consultar, cambiar estado, eliminar
-- [ ] CRUD de alertas
-- [ ] Listado de notificaciones paginado
-- [ ] CORS por entorno
+- [x] `app/auth.py`: hash argon2, emitir y validar JWT, `current_user`, `require_role`
+- [x] `create_admin.py`
+- [x] `/auth/register`, `/auth/token` (email o teléfono), `/me`
+- [x] Usuarios (listar, crear con organizaciones, cambiar rol, eliminar)
+- [x] Organizaciones (crear con miembros) y miembros
+- [x] Puntos de medición particulares y de organización, con estado
+- [x] Muestras: consultar, cambiar estado, eliminar
+- [x] CRUD de alertas
+- [x] Listado de notificaciones paginado
+- [x] CORS por entorno
 - **Test:** registro, login con email y con teléfono, contraseña incorrecta, token vencido o adulterado
 - **Test:** camino feliz de cada endpoint
 - **Test:** crear organización con un `member_id` inexistente no deja nada a medias
