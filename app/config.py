@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str
+    # HS256 wants a key of at least 32 bytes.
+    jwt_secret: str = Field(min_length=32)
+    access_token_minutes: int = Field(default=60, ge=1)
+    # Origins allowed to call the API from a browser, e.g. the future web app.
+    cors_origins: list[str] = []
     # Forecast dates are local to the fields, so "today" must be too.
     timezone: str = "America/Argentina/Buenos_Aires"
     # Percentage points above the last notice needed to notify again.

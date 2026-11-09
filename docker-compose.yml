@@ -1,5 +1,10 @@
 name: weather-alerts
 
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+asyncpg://weather:weather@db:5432/weather
+  # Fine for running it locally; any real deployment needs its own long random secret.
+  JWT_SECRET: ${JWT_SECRET:-local-compose-secret-not-for-production}
+
 services:
   db:
     image: postgres:16-alpine
@@ -21,16 +26,14 @@ services:
   migrate:
     build: .
     command: alembic upgrade head
-    environment:
-      DATABASE_URL: postgresql+asyncpg://weather:weather@db:5432/weather
+    environment: *app-environment
     depends_on:
       db:
         condition: service_healthy
 
   api:
     build: .
-    environment:
-      DATABASE_URL: postgresql+asyncpg://weather:weather@db:5432/weather
+    environment: *app-environment
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
