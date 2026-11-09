@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import select, update
 
-from app.enums import DataStatus, EventType
+from app.enums import DataStatus, EventType, NotificationStatus
 from app.jobs.evaluator import evaluate
 from app.models import Notification, WeatherForecast
 from tests.factories import make_alert, make_forecast, make_point, make_user
@@ -104,6 +104,19 @@ async def test_notifies_again_only_when_the_probability_rises_enough(session):
         await evaluate(session, TODAY, STEP)
 
     assert await notified(session, alert) == [65, 80]
+
+
+async def test_a_notice_that_never_reached_the_user_does_not_count(session):
+    point, alert = await watched_point(session)
+    sample = await make_forecast(session, point, forecast_date=TODAY, probability=65)
+    await evaluate(session, TODAY, STEP)
+    await session.execute(update(Notification).values(status=NotificationStatus.FAILED))
+
+    sample.probability = 70
+    await session.flush()
+    await evaluate(session, TODAY, STEP)
+
+    assert await notified(session, alert) == [65, 70]
 
 
 async def test_each_day_is_notified_on_its_own(session):

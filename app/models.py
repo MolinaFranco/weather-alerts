@@ -144,7 +144,11 @@ class Notification(Base):
     __table_args__ = (
         # One row per alert, day and probability level makes evaluation idempotent.
         UniqueConstraint("alert_id", "forecast_date", "probability"),
-        Index("ix_notifications_pending", "id", postgresql_where=text("status = 'pending'")),
+        Index(
+            "ix_notifications_pending",
+            "next_attempt_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -155,5 +159,7 @@ class Notification(Base):
         pg_enum(NotificationStatus, "notification_status"),
         server_default=NotificationStatus.PENDING,
     )
+    attempts: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     sent_at: Mapped[datetime | None]

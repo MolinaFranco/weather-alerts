@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Any constant works; it only has to be the same for every worker.
 EVALUATION_LOCK = 7_201_001
 
-# Notices go out only on rises, so the highest one is the last one sent. Notices below the
-# alert's current threshold are ignored, so raising the threshold re-arms the alert.
+# Notices go out only on rises, so the highest one is the last one sent. Notices that never
+# reached the user don't count, and neither do those below the alert's current threshold,
+# so raising the threshold re-arms the alert.
 # `notified` is computed once up front: probing notifications per candidate row degrades
 # badly when the planner thinks the table is empty, as it does right after a deploy.
 EVALUATE_ALERTS = text("""
@@ -18,6 +19,7 @@ EVALUATE_ALERTS = text("""
         FROM notifications AS notification
         JOIN alerts AS alert ON alert.id = notification.alert_id
         WHERE notification.forecast_date >= :today
+          AND notification.status IN ('pending', 'sent')
           AND notification.probability >= alert.threshold
         GROUP BY notification.alert_id, notification.forecast_date
     )

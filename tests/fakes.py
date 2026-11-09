@@ -2,8 +2,6 @@ from app.jobs.notifier import Notice
 
 
 class RecordingNotifier:
-    """Keeps what it was asked to send; fails for the point names it is told to."""
-
     def __init__(self, failing_points=()):
         self.sent: list[Notice] = []
         self.failing_points = set(failing_points)
