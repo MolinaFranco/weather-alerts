@@ -1,4 +1,4 @@
-"""Background job: evaluate alerts and send the notices that are due, every few seconds.
+"""Background job: evaluate alerts and send the notices that are due, periodically.
 
 Run with `python -m app.worker`. Stops cleanly on SIGTERM, after the current cycle.
 """
@@ -14,33 +14,34 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
-from app.db import SessionFactory
-from app.jobs.dispatcher import dispatch
+from app.db import SessionFactory, engine
+from app.jobs.dispatcher import dispatch_next
 from app.jobs.evaluator import evaluate
 from app.jobs.notifier import LogNotifier, Notifier
 
 log = logging.getLogger(__name__)
-
-BATCH_SIZE = 100
 
 
 def local_today(timezone: str) -> date:
     return datetime.now(ZoneInfo(timezone)).date()
 
 
-async def run_cycle(sessions: async_sessionmaker[AsyncSession], notifier: Notifier) -> None:
+async def run_cycle(
+    sessions: async_sessionmaker[AsyncSession], notifier: Notifier, stop: asyncio.Event
+) -> None:
+    today = local_today(settings.timezone)
     async with sessions() as session:
         async with session.begin():
-            today = local_today(settings.timezone)
             created = await evaluate(session, today, settings.renotify_step)
 
+        # One notice per transaction, checking for shutdown in between, so stopping the
+        # worker never leaves more than one message half done.
         handled = 0
-        while True:
+        while not stop.is_set():
             async with session.begin():
-                batch = await dispatch(session, notifier, BATCH_SIZE)
-            handled += batch
-            if batch < BATCH_SIZE:
-                break
+                if not await dispatch_next(session, notifier, today):
+                    break
+            handled += 1
 
     level = logging.INFO if created or handled else logging.DEBUG
     log.log(level, "Cycle done: %s new notices, %s handled", created, handled)
@@ -66,8 +67,9 @@ async def main() -> None:
 
     notifier = LogNotifier()
     await run_until_stopped(
-        stop, lambda: run_cycle(SessionFactory, notifier), settings.evaluation_interval
+        stop, lambda: run_cycle(SessionFactory, notifier, stop), settings.evaluation_interval
     )
+    await engine.dispose()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,6 @@
-from pydantic import Field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,7 +13,16 @@ class Settings(BaseSettings):
     # Percentage points above the last notice needed to notify again.
     renotify_step: int = Field(default=15, ge=1)
     # Seconds between worker cycles. Should follow how often the ingestion writes forecasts.
-    evaluation_interval: float = Field(default=60, gt=0)
+    evaluation_interval: float = Field(default=60, ge=1)
+
+    @field_validator("timezone")
+    @classmethod
+    def known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError:
+            raise ValueError(f"unknown timezone {value!r}") from None
+        return value
 
 
 settings = Settings()
