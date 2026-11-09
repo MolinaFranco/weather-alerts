@@ -8,15 +8,23 @@ from app.jobs import dispatcher
 from app.jobs.dispatcher import MAX_ATTEMPTS, dispatch_next
 from app.jobs.notifier import Notice
 from app.models import Alert, MeasurementPoint, Notification
-from tests.factories import make_alert, make_notification, make_point, make_user
+from tests.factories import (
+    make_alert,
+    make_membership,
+    make_notification,
+    make_organization,
+    make_point,
+    make_user,
+)
 from tests.fakes import RecordingNotifier
 
 TODAY = date(2030, 6, 1)
 
 
 async def queued_notice(session, point_name="La Esperanza", user=None, **fields):
-    point = await make_point(session, name=point_name)
-    alert = await make_alert(session, user or await make_user(session), point)
+    user = user or await make_user(session)
+    point = await make_point(session, name=point_name, user_id=user.id)
+    alert = await make_alert(session, user, point)
     return await make_notification(session, alert, **{"forecast_date": TODAY} | fields)
 
 
@@ -138,7 +146,7 @@ async def test_concurrent_dispatchers_split_the_queue(committed_sessions):
             return await dispatch_next(session, notifier, TODAY)
 
     first = asyncio.create_task(run(slow))
-    await sending.wait()
+    await asyncio.wait_for(sending.wait(), timeout=2)
     try:
         # Without SKIP LOCKED this would wait for the first one to commit.
         assert await asyncio.wait_for(run(other), timeout=2) is True
@@ -148,3 +156,22 @@ async def test_concurrent_dispatchers_split_the_queue(committed_sessions):
 
     assert [notice.point_name for notice in slow.sent] == ["Lote Norte"]
     assert [notice.point_name for notice in other.sent] == ["Lote Sur"]
+
+
+async def test_a_notice_for_someone_who_left_the_organization_is_skipped(session):
+    organization = await make_organization(session)
+    point = await make_point(session, organization_id=organization.id)
+    ana = await make_user(session)
+    membership = await make_membership(session, ana, organization)
+    notification = await make_notification(
+        session, await make_alert(session, ana, point), forecast_date=TODAY
+    )
+    await session.delete(membership)
+    await session.flush()
+    notifier = RecordingNotifier()
+
+    await dispatch_next(session, notifier, TODAY)
+
+    assert notifier.sent == []
+    await session.refresh(notification)
+    assert notification.status == NotificationStatus.SKIPPED

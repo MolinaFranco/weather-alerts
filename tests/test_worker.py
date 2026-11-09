@@ -12,8 +12,9 @@ from tests.fakes import RecordingNotifier
 
 async def test_a_cycle_evaluates_and_sends(committed_sessions):
     async with committed_sessions() as session:
-        point = await make_point(session)
-        await make_alert(session, await make_user(session), point, threshold=60)
+        user = await make_user(session)
+        point = await make_point(session, user_id=user.id)
+        await make_alert(session, user, point, threshold=60)
         today = local_today(settings.timezone)
         await make_forecast(session, point, forecast_date=today, probability=75)
         await session.commit()
@@ -28,8 +29,9 @@ async def test_a_cycle_evaluates_and_sends(committed_sessions):
 
 async def test_a_stopping_worker_queues_notices_but_does_not_send_them(committed_sessions):
     async with committed_sessions() as session:
-        point = await make_point(session)
-        await make_alert(session, await make_user(session), point, threshold=60)
+        user = await make_user(session)
+        point = await make_point(session, user_id=user.id)
+        await make_alert(session, user, point, threshold=60)
         today = local_today(settings.timezone)
         await make_forecast(session, point, forecast_date=today, probability=75)
         await session.commit()

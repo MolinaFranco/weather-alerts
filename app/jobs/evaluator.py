@@ -9,6 +9,8 @@ EVALUATION_LOCK = 7_201_001
 # Notices go out only on rises, so the highest one is the last one sent. Notices that never
 # reached the user don't count, and neither do those below the alert's current threshold,
 # so raising the threshold re-arms the alert.
+# The alert's owner must still be able to see the point: someone removed from an
+# organization keeps their alerts on its points, but stops hearing about them.
 # `notified` is computed once up front: probing notifications per candidate row degrades
 # badly when the planner thinks the table is empty, as it does right after a deploy.
 EVALUATE_ALERTS = text("""
@@ -26,6 +28,7 @@ EVALUATE_ALERTS = text("""
     INSERT INTO notifications (alert_id, forecast_date, probability)
     SELECT alert.id, forecast.forecast_date, forecast.probability
     FROM alerts AS alert
+    JOIN users AS owner ON owner.id = alert.user_id
     JOIN measurement_points AS point ON point.id = alert.point_id
     JOIN weather_forecasts AS forecast
       ON forecast.point_id = alert.point_id AND forecast.event_type = alert.event_type
@@ -34,6 +37,10 @@ EVALUATE_ALERTS = text("""
     WHERE alert.is_active
       AND point.status = 'active'
       AND forecast.status = 'active'
+      AND (owner.role <> 'client'
+           OR point.user_id = owner.id
+           OR point.organization_id IN (
+               SELECT organization_id FROM memberships WHERE user_id = owner.id))
       AND forecast.forecast_date >= :today
       AND forecast.probability >= alert.threshold
       AND (notified.max_probability IS NULL

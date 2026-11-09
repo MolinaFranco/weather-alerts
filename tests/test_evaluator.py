@@ -3,10 +3,17 @@ from datetime import date, timedelta
 
 from sqlalchemy import select, update
 
-from app.enums import DataStatus, EventType, NotificationStatus
+from app.enums import DataStatus, EventType, NotificationStatus, Role
 from app.jobs.evaluator import evaluate
 from app.models import Notification, WeatherForecast
-from tests.factories import make_alert, make_forecast, make_point, make_user
+from tests.factories import (
+    make_alert,
+    make_forecast,
+    make_membership,
+    make_organization,
+    make_point,
+    make_user,
+)
 
 TODAY = date(2030, 6, 1)
 TOMORROW = TODAY + timedelta(days=1)
@@ -23,9 +30,10 @@ async def notified(session, alert):
 
 
 async def watched_point(session, **point_fields):
-    """A point with a frost alert at 60% from a new user."""
-    point = await make_point(session, **point_fields)
-    alert = await make_alert(session, await make_user(session), point, threshold=60)
+    """A user's own point, with a frost alert at 60%."""
+    user = await make_user(session)
+    point = await make_point(session, user_id=user.id, **point_fields)
+    alert = await make_alert(session, user, point, threshold=60)
     return point, alert
 
 
@@ -155,9 +163,15 @@ async def test_a_reactivated_alert_does_not_repeat_a_notice(session):
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_every_user_watching_a_point_is_notified(session):
-    point, first = await watched_point(session)
-    second = await make_alert(session, await make_user(session), point)
+async def test_every_member_watching_a_shared_point_is_notified(session):
+    organization = await make_organization(session)
+    point = await make_point(session, organization_id=organization.id)
+    alerts = []
+    for _ in range(2):
+        user = await make_user(session)
+        await make_membership(session, user, organization)
+        alerts.append(await make_alert(session, user, point))
+    first, second = alerts
     await make_forecast(session, point, forecast_date=TODAY, probability=70)
 
     await evaluate(session, TODAY, STEP)
@@ -194,3 +208,28 @@ async def test_evaluations_take_turns(committed_sessions):
     assert await second == 0
     async with committed_sessions() as session:
         assert await notified(session, alert) == [70]
+
+
+async def test_someone_removed_from_the_organization_stops_being_notified(session):
+    organization = await make_organization(session)
+    point = await make_point(session, organization_id=organization.id)
+    ana = await make_user(session)
+    membership = await make_membership(session, ana, organization)
+    await make_alert(session, ana, point)
+    await make_forecast(session, point, forecast_date=TODAY, probability=90)
+
+    await session.delete(membership)
+    await session.flush()
+
+    assert await evaluate(session, TODAY, STEP) == 0
+
+
+async def test_staff_hear_about_any_point(session):
+    technician = await make_user(session, role=Role.TECHNICIAN)
+    point = await make_point(session)
+    alert = await make_alert(session, technician, point)
+    await make_forecast(session, point, forecast_date=TODAY, probability=90)
+
+    await evaluate(session, TODAY, STEP)
+
+    assert await notified(session, alert) == [90]

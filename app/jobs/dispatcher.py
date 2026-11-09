@@ -2,17 +2,26 @@ import asyncio
 import logging
 from datetime import date, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DataStatus, NotificationStatus
+from app.enums import DataStatus, NotificationStatus, Role
 from app.jobs.notifier import Notice, Notifier
-from app.models import Alert, MeasurementPoint, Notification, User
+from app.models import Alert, MeasurementPoint, Membership, Notification, User
 
 log = logging.getLogger(__name__)
 
 SEND_TIMEOUT = 10
 MAX_ATTEMPTS = 5
+
+# Same rule as the evaluator's, and as visible_points for the API.
+owner_can_see_point = or_(
+    User.role != Role.CLIENT,
+    MeasurementPoint.user_id == User.id,
+    MeasurementPoint.organization_id.in_(
+        select(Membership.organization_id).where(Membership.user_id == User.id)
+    ),
+)
 
 NEXT_DUE = (
     select(
@@ -20,7 +29,9 @@ NEXT_DUE = (
         User.phone,
         MeasurementPoint.name.label("point_name"),
         Alert.event_type,
-        (Alert.is_active & (MeasurementPoint.status == DataStatus.ACTIVE)).label("still_wanted"),
+        (
+            Alert.is_active & (MeasurementPoint.status == DataStatus.ACTIVE) & owner_can_see_point
+        ).label("still_wanted"),
     )
     .join(Alert, Alert.id == Notification.alert_id)
     .join(User, User.id == Alert.user_id)
@@ -46,8 +57,9 @@ async def dispatch_next(session: AsyncSession, notifier: Notifier, today: date) 
         return False
     notification = row.Notification
 
-    # The alert may have been paused, or the point put in testing, since the notice was
-    # queued; and after an outage there is no point warning about a day that is gone.
+    # Since the notice was queued the alert may have been paused, the point put in testing or
+    # its owner removed from the point's organization; and after an outage there is no point
+    # warning about a day that is gone.
     if row.still_wanted and notification.forecast_date >= today:
         notice = Notice(
             row.phone,
