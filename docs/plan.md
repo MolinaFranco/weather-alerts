@@ -168,31 +168,38 @@ Un solo enum `data_status = active | testing | disabled` para los dos.
 
 - Un técnico pone un punto en `testing` mientras se instala o calibra, o en `disabled`
   si deja de usarse.
-- **Las muestras que llegan a un punto no activo heredan su estado.** Lo hace un trigger
-  de Postgres (`BEFORE INSERT OR UPDATE` en `weather_forecasts`): la ingesta es un
-  sistema externo que no controlamos, así que la regla tiene que vivir en la base y no
-  en nuestro código.
-- Una muestra conserva su estado aunque el punto después pase a activo: los datos de
-  prueba siguen siendo de prueba.
-- Un técnico también puede marcar una muestra puntual como `testing` o `disabled`
-  (ej. un valor anómalo).
+- **Cada dato nuevo toma el estado actual del punto.** Lo hace un trigger de Postgres
+  (`sync_sample_status`, `BEFORE INSERT OR UPDATE` en `weather_forecasts`): la ingesta es
+  un sistema externo que no controlamos, así que la regla tiene que vivir en la base y no
+  en nuestro código. "Dato nuevo" es una fila nueva o un cambio de probabilidad.
+- Como la ingesta reescribe los próximos días en cada pasada, cuando un punto pasa a
+  activo sus pronósticos se activan con el siguiente dato real.
+- Un técnico puede marcar una muestra puntual como `testing` o `disabled` (ej. un valor
+  anómalo). La marca dura hasta que llega una probabilidad nueva para esa muestra.
+  Mientras el punto no esté activo, sus muestras no se pueden activar.
+- El mismo trigger mantiene `updated_at`, porque la ingesta no pasa por el ORM.
 - **Solo muestras `active` de puntos `active` disparan alertas.**
 
 Constraints clave:
 
 | Tabla | Constraint | Para qué |
 |---|---|---|
-| `users` | `UNIQUE(phone)`, `UNIQUE(email)` | Identifican al usuario en el login |
+| `users` | `UNIQUE(phone)`, `UNIQUE(lower(email))` | Identifican al usuario en el login, sin importar mayúsculas |
+| `users` | `CHECK(phone ~ E.164)` | El teléfono sirve para WhatsApp |
 | `memberships` | `PRIMARY KEY(user_id, organization_id)` | Sin membresías repetidas |
 | `measurement_points` | `CHECK(num_nonnulls(organization_id, user_id) = 1)` | Exactamente un dueño |
 | `measurement_points` | `UNIQUE(organization_id, name)`, `UNIQUE(user_id, name)` | Nombres sin repetir por dueño (los `NULL` no chocan entre sí) |
 | `weather_forecasts` | `UNIQUE(point_id, forecast_date, event_type)` | Una muestra por día y evento; la ingesta hace upsert |
 | `weather_forecasts` | `CHECK(probability BETWEEN 0 AND 100)` | |
-| `weather_forecasts` | trigger `inherit_point_status` | Muestras de puntos no activos heredan el estado |
+| `weather_forecasts` | trigger `sync_sample_status` | Estado de las muestras y `updated_at` (ver arriba) |
 | `alerts` | `UNIQUE(user_id, point_id, event_type)` | Una alerta por usuario, punto y evento |
 | `alerts` | `CHECK(threshold BETWEEN 1 AND 100)` | |
 | `notifications` | `UNIQUE(alert_id, forecast_date, probability)` | Idempotencia: el mismo aviso nunca se genera dos veces |
 | todas | `ON DELETE CASCADE` hacia el padre | Borrar un punto limpia sus muestras y alertas |
+
+Índices además de los de PK y unique: `alerts(point_id)` para el evaluador,
+`memberships(organization_id)` para listar miembros y `notifications(id) WHERE status =
+'pending'` para el dispatcher.
 
 Enums: `user_role = client | technician | admin`, `data_status = active | testing | disabled`,
 `event_type = frost | rain | hail | strong_wind | heat_wave`,
@@ -399,13 +406,15 @@ Ningún archivo debería pasar ~150 líneas.
 ```mermaid
 flowchart LR
     F0[0 · Setup] --> F1[1 · Modelo]
-    F1 --> F2[2 · Auth y API]
-    F1 --> F3[3 · Evaluador]
-    F3 --> F4[4 · Envío y worker]
-    F2 --> F5[5 · Mocks y Docker]
-    F4 --> F5
+    F1 --> F2[2 · Evaluador]
+    F2 --> F3[3 · Envío y worker]
+    F3 --> F4[4 · Auth y API]
+    F4 --> F5[5 · Mocks y Docker]
     F5 --> F6[6 · README y cierre]
 ```
+
+El núcleo del challenge (evaluar y avisar) va primero: si falta tiempo, lo que queda
+afuera es gestión, no lo que se evalúa.
 
 ### Fase 0 — Setup
 - [x] `pyproject.toml` con uv, ruff y pytest configurados
@@ -423,10 +432,30 @@ flowchart LR
 - [x] Alembic inicializado (async) y primera migración, con el trigger de estado
 - **Test:** `upgrade head` y `downgrade base` corren limpios
 - **Test:** los constraints rechazan datos inválidos (umbral 0, probabilidad 101, duplicados, punto sin dueño)
-- **Test:** una muestra que llega a un punto en testing queda en testing, y sigue así cuando el punto se activa
+- **Test:** reglas de estado de las muestras, con upserts como los de la ingesta
 - **Revisión:** el código coincide con el diagrama de la sección 3
 
-### Fase 2 — Auth y API
+### Fase 2 — Evaluador
+- [ ] `evaluate()`: la consulta de la sección 5
+- **Test:** probabilidad >= umbral genera aviso; menor no
+- **Test:** alerta inactiva no genera aviso; fechas pasadas se ignoran
+- **Test:** muestras en testing o disabled, o de puntos no activos, no generan aviso
+- **Test:** correr dos veces sin cambios no duplica
+- **Test:** sube menos que `RENOTIFY_STEP` → nada; sube más → segundo aviso; baja → nada
+- **Test:** dos evaluaciones concurrentes no duplican
+- **Test:** `today` respeta `TIMEZONE`
+- **Revisión:** ¿la consulta se entiende sin comentarios?
+
+### Fase 3 — Envío y worker
+- [ ] `Notifier` (Protocol) + `LogNotifier`
+- [ ] `dispatch()` con `FOR UPDATE SKIP LOCKED`
+- [ ] `worker.py`: loop, intervalo por env, apagado limpio con SIGTERM
+- **Test:** pendientes pasan a `sent`; si el notifier falla, a `failed`
+- **Test:** un fallo no frena el resto del lote
+- **Test:** un ciclo completo (evaluar + despachar) con un notifier falso
+- **Revisión:** ¿el worker sobrevive a un error de base en un ciclo?
+
+### Fase 4 — Auth y API
 - [ ] `app/auth.py`: hash argon2, emitir y validar JWT, `current_user`, `require_role`
 - [ ] `create_admin.py`
 - [ ] `/auth/register`, `/auth/token` (email o teléfono), `/me`
@@ -445,29 +474,9 @@ flowchart LR
 - **Test:** 409 por duplicados, 422 por umbral fuera de rango
 - **Revisión:** ¿handlers finos? ¿algún endpoint que no se pidió?
 
-### Fase 3 — Evaluador
-- [ ] `evaluate()`: la consulta de la sección 5
-- **Test:** probabilidad >= umbral genera aviso; menor no
-- **Test:** alerta inactiva no genera aviso; fechas pasadas se ignoran
-- **Test:** muestras en testing o disabled, o de puntos no activos, no generan aviso
-- **Test:** correr dos veces sin cambios no duplica
-- **Test:** sube menos que `RENOTIFY_STEP` → nada; sube más → segundo aviso; baja → nada
-- **Test:** dos evaluaciones concurrentes no duplican
-- **Test:** `today` respeta `TIMEZONE`
-- **Revisión:** ¿la consulta se entiende sin comentarios?
-
-### Fase 4 — Envío y worker
-- [ ] `Notifier` (Protocol) + `LogNotifier`
-- [ ] `dispatch()` con `FOR UPDATE SKIP LOCKED`
-- [ ] `worker.py`: loop, intervalo por env, apagado limpio con SIGTERM
-- **Test:** pendientes pasan a `sent`; si el notifier falla, a `failed`
-- **Test:** un fallo no frena el resto del lote
-- **Test:** un ciclo completo (evaluar + despachar) con un notifier falso
-- **Revisión:** ¿el worker sobrevive a un error de base en un ciclo?
-
 ### Fase 5 — Mocks y Docker
 - [ ] `mocks/seed.py` y `mocks/fake_ingest.py`
-- [ ] Compose completo: `db`, `migrate`, `api`, `worker`, `fake_ingest`
+- [ ] Compose completo: sumar `worker` y `fake_ingest` (`migrate` ya está desde la fase 1)
 - **Test:** `docker compose up` desde cero deja la API respondiendo y el worker
   avisando y re-avisando en los logs
 - **Revisión:** seguir el README en una máquina limpia
