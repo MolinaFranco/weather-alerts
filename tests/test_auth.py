@@ -26,6 +26,12 @@ async def test_register_creates_a_client(client):
     assert "password" not in body and "password_hash" not in body
 
 
+async def test_signing_up_never_grants_a_role(client):
+    response = await client.post("/auth/register", json=NEW_USER | {"role": "admin"})
+
+    assert response.json()["role"] == Role.CLIENT
+
+
 async def test_an_email_or_phone_can_only_register_once(client):
     await client.post("/auth/register", json=NEW_USER)
     same_email = NEW_USER | {"email": "ana@example.com", "phone": "+5493415550001"}
@@ -77,17 +83,21 @@ async def test_login_fails_with_wrong_credentials(client, session, username, pas
     assert response.status_code == 401
 
 
-async def test_expired_tampered_or_orphan_tokens_are_rejected(client, session):
+async def test_expired_forged_orphan_or_endless_tokens_are_rejected(client, session):
     user = await make_user(session)
     expired = jwt.encode(
         {"sub": str(user.id), "exp": datetime.now(UTC) - timedelta(minutes=1)},
         settings.jwt_secret,
         "HS256",
     )
-    forged = jwt.encode({"sub": str(user.id)}, "someone-elses-secret-of-32-bytes", "HS256")
-    orphan = jwt.encode({"sub": "999999"}, settings.jwt_secret, "HS256")
+    in_an_hour = datetime.now(UTC) + timedelta(hours=1)
+    forged = jwt.encode(
+        {"sub": str(user.id), "exp": in_an_hour}, "someone-elses-secret-of-32-bytes", "HS256"
+    )
+    orphan = jwt.encode({"sub": "999999", "exp": in_an_hour}, settings.jwt_secret, "HS256")
+    never_expires = jwt.encode({"sub": str(user.id)}, settings.jwt_secret, "HS256")
 
-    for token in (expired, forged, orphan, "not a token"):
+    for token in (expired, forged, orphan, never_expires, "not a token"):
         response = await client.get("/me", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 

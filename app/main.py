@@ -27,8 +27,7 @@ async def integrity_error(request: Request, exc: IntegrityError) -> JSONResponse
     # The database enforces uniqueness and references, so routes don't check them first
     # (a check before the insert would race anyway). Duplicates are conflicts; a missing
     # referenced row or a broken rule is a bad request.
-    duplicate = getattr(exc.orig, "sqlstate", None) == "23505"
-    if duplicate:
+    if exc.orig.sqlstate == "23505":
         return JSONResponse({"detail": "Already exists"}, status.HTTP_409_CONFLICT)
     return JSONResponse(
         {"detail": "Refers to something that doesn't exist or breaks a rule"},
@@ -42,5 +41,5 @@ async def health(session: SessionDep) -> dict[str, str]:
     try:
         await session.execute(text("SELECT 1"))
     except (SQLAlchemyError, OSError) as exc:
-        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Database unavailable") from exc
     return {"status": "ok"}

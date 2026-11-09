@@ -2,40 +2,65 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, model_validator
+from fastapi import Path
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from app.enums import DataStatus, EventType, NotificationStatus, Role
 
+# Postgres integer columns stop at 2**31 - 1; a bigger id would otherwise be a 500.
+MAX_ID = 2**31 - 1
+Id = Annotated[int, Field(ge=1, le=MAX_ID)]
+PathId = Annotated[int, Path(ge=1, le=MAX_ID)]
+
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+Email = Annotated[EmailStr, AfterValidator(str.lower)]
 Phone = Annotated[str, StringConstraints(pattern=r"^\+[1-9][0-9]{7,14}$")]
+Password = Annotated[str, Field(min_length=8, max_length=128)]
 Percentage = Annotated[int, Field(ge=1, le=100)]
+Latitude = Annotated[Decimal, Field(ge=-90, le=90)]
+Longitude = Annotated[Decimal, Field(ge=-180, le=180)]
 
 
-class Response(BaseModel):
+class FromOrm(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
 class UserCreate(BaseModel):
     name: Name
-    email: EmailStr
+    email: Email
     phone: Phone
-    password: Annotated[str, Field(min_length=8, max_length=128)]
+    password: Password
 
 
 class StaffUserCreate(UserCreate):
-    organization_ids: list[int] = []
+    organization_ids: list[Id] = []
 
 
 class UserRoleUpdate(BaseModel):
     role: Role
 
 
-class UserOut(Response):
+class UserOut(FromOrm):
     id: int
     name: str
     email: str
     phone: str
     role: Role
+
+
+class MemberOut(FromOrm):
+    """What members of an organization see of each other: no contact details."""
+
+    id: int
+    name: str
 
 
 class Token(BaseModel):
@@ -45,14 +70,14 @@ class Token(BaseModel):
 
 class OrganizationCreate(BaseModel):
     name: Name
-    member_ids: list[int] = []
+    member_ids: list[Id] = []
 
 
 class OrganizationUpdate(BaseModel):
     name: Name
 
 
-class OrganizationOut(Response):
+class OrganizationOut(FromOrm):
     id: int
     name: str
 
@@ -62,15 +87,15 @@ class Me(UserOut):
 
 
 class MemberAdd(BaseModel):
-    user_id: int
+    user_id: Id
 
 
 class PointCreate(BaseModel):
     name: Name
-    latitude: Annotated[Decimal, Field(ge=-90, le=90)]
-    longitude: Annotated[Decimal, Field(ge=-180, le=180)]
-    organization_id: int | None = None
-    user_id: int | None = None
+    latitude: Latitude
+    longitude: Longitude
+    organization_id: Id | None = None
+    user_id: Id | None = None
 
     @model_validator(mode="after")
     def single_owner(self) -> Self:
@@ -81,12 +106,12 @@ class PointCreate(BaseModel):
 
 class PointUpdate(BaseModel):
     name: Name | None = None
-    latitude: Annotated[Decimal, Field(ge=-90, le=90)] | None = None
-    longitude: Annotated[Decimal, Field(ge=-180, le=180)] | None = None
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
     status: DataStatus | None = None
 
 
-class PointOut(Response):
+class PointOut(FromOrm):
     id: int
     name: str
     latitude: float
@@ -96,7 +121,7 @@ class PointOut(Response):
     status: DataStatus
 
 
-class ForecastOut(Response):
+class ForecastOut(FromOrm):
     id: int
     forecast_date: date
     event_type: EventType
@@ -109,7 +134,7 @@ class ForecastUpdate(BaseModel):
 
 
 class AlertCreate(BaseModel):
-    point_id: int
+    point_id: Id
     event_type: EventType
     threshold: Percentage
 
@@ -119,7 +144,7 @@ class AlertUpdate(BaseModel):
     is_active: bool | None = None
 
 
-class AlertOut(Response):
+class AlertOut(FromOrm):
     id: int
     point_id: int
     event_type: EventType
@@ -127,7 +152,7 @@ class AlertOut(Response):
     is_active: bool
 
 
-class NotificationOut(Response):
+class NotificationOut(FromOrm):
     id: int
     alert_id: int
     forecast_date: date

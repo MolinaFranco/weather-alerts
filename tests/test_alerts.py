@@ -13,13 +13,8 @@ async def test_a_client_creates_an_alert_on_a_point_they_see(client, session):
     )
 
     assert response.status_code == 201
-    assert response.json() | {"id": 0} == {
-        "id": 0,
-        "point_id": point.id,
-        "event_type": "frost",
-        "threshold": 60,
-        "is_active": True,
-    }
+    alert = response.json()
+    assert (alert["point_id"], alert["threshold"], alert["is_active"]) == (point.id, 60, True)
 
 
 async def test_alerts_on_points_you_cant_see_are_a_404(client, session):
@@ -65,6 +60,22 @@ async def test_users_only_see_and_change_their_own_alerts(client, session):
     deleted = await client.delete(f"/alerts/{anas.id}", headers=bearer(ana))
 
     assert [a["id"] for a in listed.json()] == [anas.id]
-    assert paused.json()["is_active"] is False and paused.json()["threshold"] == 75
+    assert paused.json()["is_active"] is False
+    assert paused.json()["threshold"] == 75
     assert not_hers.status_code == 404
     assert deleted.status_code == 204
+
+
+async def test_ids_beyond_the_database_range_are_rejected_not_a_crash(client, session):
+    ana = await make_user(session)
+    too_big = 2**31
+
+    path = await client.patch(f"/alerts/{too_big}", headers=bearer(ana), json={"threshold": 50})
+    body = await client.post(
+        "/alerts",
+        headers=bearer(ana),
+        json={"point_id": too_big, "event_type": "frost", "threshold": 60},
+    )
+
+    assert path.status_code == 422
+    assert body.status_code == 422

@@ -68,7 +68,7 @@ async def committed_sessions():
 
 
 @pytest.fixture
-async def client(connection, session):
+async def client(connection):
     # Each request gets its own session, as in production, on the test's transaction: it
     # sees what the test created, and a request that fails doesn't disturb the test's session.
     async def request_session():

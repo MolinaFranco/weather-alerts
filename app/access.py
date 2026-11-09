@@ -1,4 +1,4 @@
-"""Who can see what. Every route that touches points or organizations goes through here."""
+"""What each user can see, and the 404 for everything else."""
 
 from fastapi import HTTPException, status
 from sqlalchemy import Select, or_, select
@@ -37,6 +37,13 @@ def visible_points(user: User) -> Select:
 def not_found() -> HTTPException:
     # Also used for things that exist but aren't yours, so ids can't be probed.
     return HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+
+async def get_or_404[T](session: AsyncSession, model: type[T], item_id: int) -> T:
+    item = await session.get(model, item_id)
+    if item is None:
+        raise not_found()
+    return item
 
 
 async def get_visible_point(session: AsyncSession, user: User, point_id: int) -> MeasurementPoint:

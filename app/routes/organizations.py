@@ -1,16 +1,17 @@
 from fastapi import APIRouter, status
 from sqlalchemy import delete, select
 
-from app.access import get_visible_organization, not_found, visible_organizations
+from app.access import get_or_404, get_visible_organization, not_found, visible_organizations
 from app.auth import Admin, CurrentUser, Technician
 from app.db import SessionDep
 from app.models import Membership, Organization, User
 from app.schemas import (
     MemberAdd,
+    MemberOut,
     OrganizationCreate,
     OrganizationOut,
     OrganizationUpdate,
-    UserOut,
+    PathId,
 )
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -40,29 +41,25 @@ async def create_organization(
 
 @router.patch("/{organization_id}")
 async def rename_organization(
-    organization_id: int, body: OrganizationUpdate, _: Technician, session: SessionDep
+    organization_id: PathId, body: OrganizationUpdate, _: Technician, session: SessionDep
 ) -> OrganizationOut:
-    organization = await session.get(Organization, organization_id)
-    if organization is None:
-        raise not_found()
+    organization = await get_or_404(session, Organization, organization_id)
     organization.name = body.name
     await session.commit()
     return OrganizationOut.model_validate(organization)
 
 
 @router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_organization(organization_id: int, _: Admin, session: SessionDep) -> None:
-    organization = await session.get(Organization, organization_id)
-    if organization is None:
-        raise not_found()
-    await session.delete(organization)
+async def delete_organization(organization_id: PathId, _: Admin, session: SessionDep) -> None:
+    await session.delete(await get_or_404(session, Organization, organization_id))
     await session.commit()
 
 
 @router.get("/{organization_id}/members")
 async def list_members(
-    organization_id: int, user: CurrentUser, session: SessionDep
-) -> list[UserOut]:
+    organization_id: PathId, user: CurrentUser, session: SessionDep
+) -> list[MemberOut]:
+    """Names only: contact details are for staff, through /users."""
     await get_visible_organization(session, user, organization_id)
     members = await session.scalars(
         select(User)
@@ -70,22 +67,21 @@ async def list_members(
         .where(Membership.organization_id == organization_id)
         .order_by(User.name)
     )
-    return [UserOut.model_validate(member) for member in members]
+    return [MemberOut.model_validate(member) for member in members]
 
 
 @router.post("/{organization_id}/members", status_code=status.HTTP_204_NO_CONTENT)
 async def add_member(
-    organization_id: int, body: MemberAdd, _: Technician, session: SessionDep
+    organization_id: PathId, body: MemberAdd, _: Technician, session: SessionDep
 ) -> None:
-    if await session.get(Organization, organization_id) is None:
-        raise not_found()
+    await get_or_404(session, Organization, organization_id)
     session.add(Membership(user_id=body.user_id, organization_id=organization_id))
     await session.commit()
 
 
 @router.delete("/{organization_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_member(
-    organization_id: int, user_id: int, _: Technician, session: SessionDep
+    organization_id: PathId, user_id: PathId, _: Technician, session: SessionDep
 ) -> None:
     result = await session.execute(
         delete(Membership).where(

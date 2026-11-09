@@ -6,7 +6,7 @@ from app.access import get_visible_point, not_found
 from app.auth import CurrentUser
 from app.db import SessionDep
 from app.models import Alert, User
-from app.schemas import AlertCreate, AlertOut, AlertUpdate
+from app.schemas import AlertCreate, AlertOut, AlertUpdate, PathId
 
 router = APIRouter(tags=["alerts"])
 
@@ -38,7 +38,7 @@ async def create_alert(body: AlertCreate, user: CurrentUser, session: SessionDep
 
 @router.patch("/alerts/{alert_id}")
 async def update_alert(
-    alert_id: int, body: AlertUpdate, user: CurrentUser, session: SessionDep
+    alert_id: PathId, body: AlertUpdate, user: CurrentUser, session: SessionDep
 ) -> AlertOut:
     alert = await get_own_alert(session, user, alert_id)
     for field, value in body.model_dump(exclude_none=True).items():
@@ -48,6 +48,6 @@ async def update_alert(
 
 
 @router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_alert(alert_id: int, user: CurrentUser, session: SessionDep) -> None:
+async def delete_alert(alert_id: PathId, user: CurrentUser, session: SessionDep) -> None:
     await session.delete(await get_own_alert(session, user, alert_id))
     await session.commit()

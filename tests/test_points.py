@@ -129,8 +129,58 @@ async def test_admins_delete_points_and_samples(client, session):
     point = await make_point(session)
     sample = await make_forecast(session, point, forecast_date=DAY)
 
-    assert (
-        await client.delete(f"/forecasts/{sample.id}", headers=bearer(admin))
-    ).status_code == 204
-    assert (await client.delete(f"/points/{point.id}", headers=bearer(admin))).status_code == 204
-    assert (await client.delete(f"/points/{point.id}", headers=bearer(admin))).status_code == 404
+    forecast_deleted = await client.delete(f"/forecasts/{sample.id}", headers=bearer(admin))
+    point_deleted = await client.delete(f"/points/{point.id}", headers=bearer(admin))
+    deleted_again = await client.delete(f"/points/{point.id}", headers=bearer(admin))
+
+    assert forecast_deleted.status_code == 204
+    assert point_deleted.status_code == 204
+    assert deleted_again.status_code == 404
+
+
+async def test_a_point_for_a_missing_owner_or_with_a_taken_name_is_refused(client, session):
+    technician = await make_user(session, role=Role.TECHNICIAN)
+    organization = await make_organization(session)
+    await make_point(session, organization_id=organization.id, name="Lote 1")
+    point = {"name": "Lote 1", "latitude": 0, "longitude": 0}
+
+    missing_owner = await client.post(
+        "/points", headers=bearer(technician), json=point | {"organization_id": 999999}
+    )
+    taken_name = await client.post(
+        "/points", headers=bearer(technician), json=point | {"organization_id": organization.id}
+    )
+
+    assert missing_owner.status_code == 422
+    assert taken_name.status_code == 409
+
+
+async def test_a_client_cant_see_their_own_point_while_it_is_in_testing(client, session):
+    ana = await make_user(session)
+    point = await make_point(session, user_id=ana.id, status=DataStatus.TESTING)
+
+    response = await client.get(f"/points/{point.id}/forecasts", headers=bearer(ana))
+
+    assert response.status_code == 404
+
+
+async def test_an_updated_point_returns_the_coordinates_as_stored(client, session):
+    technician = await make_user(session, role=Role.TECHNICIAN)
+    point = await make_point(session)
+
+    response = await client.patch(
+        f"/points/{point.id}", headers=bearer(technician), json={"latitude": -33.12345678}
+    )
+
+    assert response.json()["latitude"] == -33.123457
+
+
+async def test_a_date_range_that_ends_before_it_starts_is_rejected(client, session):
+    ana = await make_user(session)
+    point = await make_point(session, user_id=ana.id)
+
+    response = await client.get(
+        f"/points/{point.id}/forecasts?since=2030-06-02&until=2030-06-01", headers=bearer(ana)
+    )
+
+    assert response.status_code == 422

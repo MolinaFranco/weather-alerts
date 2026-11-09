@@ -16,7 +16,7 @@ async def list_notifications(
     user: CurrentUser,
     session: SessionDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=100_000)] = 0,
 ) -> list[NotificationOut]:
     """The user's notices, newest first."""
     notifications = await session.scalars(

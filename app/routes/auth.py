@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, or_, select
 
-from app.auth import UNKNOWN_USER_HASH, CurrentUser, create_access_token, passwords
+from app.auth import (
+    UNKNOWN_USER_HASH,
+    CurrentUser,
+    create_access_token,
+    hash_password,
+    verify_password,
+)
 from app.db import SessionDep
 from app.models import Membership, Organization, User
 from app.schemas import Me, OrganizationOut, Token, UserCreate, UserOut
@@ -17,9 +23,9 @@ async def register(body: UserCreate, session: SessionDep) -> UserOut:
     """Sign up as a client. Organizations are set up by staff."""
     user = User(
         name=body.name,
-        email=body.email.lower(),
+        email=body.email,
         phone=body.phone,
-        password_hash=passwords.hash(body.password),
+        password_hash=await hash_password(body.password),
     )
     session.add(user)
     await session.commit()
@@ -35,9 +41,8 @@ async def login(
     user = await session.scalar(
         select(User).where(or_(func.lower(User.email) == username.lower(), User.phone == username))
     )
-    if user is None:
-        passwords.verify(form.password, UNKNOWN_USER_HASH)
-    if user is None or not passwords.verify(form.password, user.password_hash):
+    password_hash = user.password_hash if user else UNKNOWN_USER_HASH
+    if not await verify_password(form.password, password_hash) or user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
     return Token(access_token=create_access_token(user.id))
 

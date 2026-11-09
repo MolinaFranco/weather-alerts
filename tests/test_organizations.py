@@ -1,4 +1,7 @@
+from sqlalchemy import select
+
 from app.enums import Role
+from app.models import Organization
 from tests.factories import bearer, make_membership, make_organization, make_user
 
 
@@ -88,3 +91,30 @@ async def test_staff_rename_and_admins_delete(client, session):
 
     assert renamed.json()["name"] == "Nuevo"
     assert deleted.status_code == 204
+
+
+async def test_an_organization_with_a_missing_member_is_not_created(client, session):
+    technician = await make_user(session, role=Role.TECHNICIAN)
+
+    response = await client.post(
+        "/organizations",
+        headers=bearer(technician),
+        json={"name": "Campo fantasma", "member_ids": [999999]},
+    )
+
+    assert response.status_code == 422
+    assert (
+        await session.scalar(select(Organization).where(Organization.name == "Campo fantasma"))
+        is None
+    )
+
+
+async def test_members_only_see_each_others_names(client, session):
+    ana, juan = await make_user(session), await make_user(session)
+    organization = await make_organization(session)
+    await make_membership(session, ana, organization)
+    await make_membership(session, juan, organization)
+
+    response = await client.get(f"/organizations/{organization.id}/members", headers=bearer(ana))
+
+    assert all(set(member) == {"id", "name"} for member in response.json())

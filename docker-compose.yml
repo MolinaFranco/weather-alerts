@@ -13,7 +13,7 @@ services:
       POSTGRES_PASSWORD: weather
       POSTGRES_DB: weather
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro

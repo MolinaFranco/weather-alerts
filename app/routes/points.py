@@ -1,14 +1,14 @@
 from datetime import date
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.access import get_visible_point, not_found, visible_points
+from app.access import get_or_404, get_visible_point, visible_points
 from app.auth import Admin, CurrentUser, Technician, is_staff
 from app.db import SessionDep
 from app.enums import DataStatus
 from app.models import MeasurementPoint, WeatherForecast
-from app.schemas import ForecastOut, ForecastUpdate, PointCreate, PointOut, PointUpdate
+from app.schemas import ForecastOut, ForecastUpdate, PathId, PointCreate, PointOut, PointUpdate
 
 router = APIRouter(tags=["points"])
 
@@ -30,35 +30,34 @@ async def create_point(body: PointCreate, _: Technician, session: SessionDep) ->
 
 @router.patch("/points/{point_id}")
 async def update_point(
-    point_id: int, body: PointUpdate, _: Technician, session: SessionDep
+    point_id: PathId, body: PointUpdate, _: Technician, session: SessionDep
 ) -> PointOut:
-    point = await session.get(MeasurementPoint, point_id)
-    if point is None:
-        raise not_found()
+    point = await get_or_404(session, MeasurementPoint, point_id)
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(point, field, value)
     await session.commit()
+    # Coordinates come back rounded to the column's six decimals.
+    await session.refresh(point)
     return PointOut.model_validate(point)
 
 
 @router.delete("/points/{point_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_point(point_id: int, _: Admin, session: SessionDep) -> None:
-    point = await session.get(MeasurementPoint, point_id)
-    if point is None:
-        raise not_found()
-    await session.delete(point)
+async def delete_point(point_id: PathId, _: Admin, session: SessionDep) -> None:
+    await session.delete(await get_or_404(session, MeasurementPoint, point_id))
     await session.commit()
 
 
 @router.get("/points/{point_id}/forecasts")
 async def list_forecasts(
-    point_id: int,
+    point_id: PathId,
     user: CurrentUser,
     session: SessionDep,
     since: date | None = None,
     until: date | None = None,
 ) -> list[ForecastOut]:
-    """A point's samples, by day. Clients only get active ones."""
+    """A point's forecasts, by day. Clients only get active ones."""
+    if since and until and since > until:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "since is after until")
     await get_visible_point(session, user, point_id)
     query = select(WeatherForecast).where(WeatherForecast.point_id == point_id)
     if not is_staff(user):
@@ -75,23 +74,18 @@ async def list_forecasts(
 
 @router.patch("/forecasts/{forecast_id}")
 async def mark_forecast(
-    forecast_id: int, body: ForecastUpdate, _: Technician, session: SessionDep
+    forecast_id: PathId, body: ForecastUpdate, _: Technician, session: SessionDep
 ) -> ForecastOut:
-    """Mark a single sample, e.g. an anomalous reading, as testing or disabled."""
-    forecast = await session.get(WeatherForecast, forecast_id)
-    if forecast is None:
-        raise not_found()
+    """Mark a single forecast, e.g. an anomalous value, as testing or disabled."""
+    forecast = await get_or_404(session, WeatherForecast, forecast_id)
     forecast.status = body.status
     await session.commit()
-    # The status trigger keeps samples of a point that isn't active in the point's status.
+    # The status trigger keeps forecasts of a point that isn't active in the point's status.
     await session.refresh(forecast)
     return ForecastOut.model_validate(forecast)
 
 
 @router.delete("/forecasts/{forecast_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_forecast(forecast_id: int, _: Admin, session: SessionDep) -> None:
-    forecast = await session.get(WeatherForecast, forecast_id)
-    if forecast is None:
-        raise not_found()
-    await session.delete(forecast)
+async def delete_forecast(forecast_id: PathId, _: Admin, session: SessionDep) -> None:
+    await session.delete(await get_or_404(session, WeatherForecast, forecast_id))
     await session.commit()
