@@ -149,7 +149,7 @@ class Notification(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"))
-    forecast_date: Mapped[date] = mapped_column(Date)
+    forecast_date: Mapped[date] = mapped_column(Date, index=True)
     probability: Mapped[int] = mapped_column(SmallInteger)
     status: Mapped[NotificationStatus] = mapped_column(
         pg_enum(NotificationStatus, "notification_status"),

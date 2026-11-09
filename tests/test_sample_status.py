@@ -12,9 +12,9 @@ from tests.factories import make_forecast, make_point
 DAY = date(2030, 6, 1)
 
 
-async def ingest(session, point, probability):
+async def ingest(session, point, probability, day=DAY):
     statement = insert(WeatherForecast).values(
-        point_id=point.id, forecast_date=DAY, event_type=EventType.FROST, probability=probability
+        point_id=point.id, forecast_date=day, event_type=EventType.FROST, probability=probability
     )
     statement = statement.on_conflict_do_update(
         index_elements=["point_id", "forecast_date", "event_type"],
@@ -44,16 +44,6 @@ async def test_samples_take_the_status_of_a_point_that_is_not_active(session):
 
     assert await ingest(session, testing, 40) == DataStatus.TESTING
     assert await ingest(session, disabled, 40) == DataStatus.DISABLED
-
-
-async def test_new_data_after_the_point_is_activated_is_active(session):
-    point = await make_point(session, status=DataStatus.TESTING)
-    await ingest(session, point, 40)
-
-    await set_point_status(session, point, DataStatus.ACTIVE)
-
-    assert await ingest(session, point, 40) == DataStatus.TESTING
-    assert await ingest(session, point, 65) == DataStatus.ACTIVE
 
 
 async def test_new_data_on_a_point_that_was_disabled_is_disabled(session):
@@ -90,3 +80,14 @@ async def test_updates_refresh_updated_at(session):
     await session.refresh(sample)
 
     assert sample.updated_at > long_ago
+
+
+async def test_activating_a_point_activates_its_upcoming_samples(session):
+    point = await make_point(session, status=DataStatus.TESTING)
+    await ingest(session, point, 80)
+    await ingest(session, point, 80, day=date(2020, 1, 1))
+
+    await set_point_status(session, point, DataStatus.ACTIVE)
+
+    assert await ingest(session, point, 80) == DataStatus.ACTIVE
+    assert await ingest(session, point, 80, day=date(2020, 1, 1)) == DataStatus.TESTING
