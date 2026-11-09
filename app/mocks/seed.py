@@ -30,25 +30,30 @@ async def seed() -> None:
         def user(name, email, phone, role=Role.CLIENT):
             return User(name=name, email=email, phone=phone, password_hash=password_hash, role=role)
 
-        admin = user("Admin", "admin@example.com", "+5493410000001", Role.ADMIN)
-        technician = user("Técnico", "tecnico@example.com", "+5493410000002", Role.TECHNICIAN)
-        ana = user("Ana Pérez", "ana@example.com", "+5493415550000")
-        juan = user("Juan Gómez", "juan@example.com", "+5493415550001")
+        admin = user("Admin", "admin@example.com", "+5493410000100", Role.ADMIN)
+        technician = user("Técnico", "tecnico@example.com", "+5493410000200", Role.TECHNICIAN)
+        ana = user("Ana Pérez", "ana@example.com", "+5493415550301")
+        juan = user("Juan Gómez", "juan@example.com", "+5493415550402")
         estancia = Organization(name="Estancia La Esperanza")
         session.add_all([admin, technician, ana, juan, estancia])
         await session.flush()
 
-        def point(name, latitude, longitude, status=DataStatus.ACTIVE, **owner):
-            return MeasurementPoint(
-                name=name, latitude=latitude, longitude=longitude, status=status, **owner
-            )
-
-        norte = point("Lote Norte", -33.12, -60.45, organization_id=estancia.id)
-        sur = point("Lote Sur", -33.16, -60.47, organization_id=estancia.id)
-        potrero = point(
-            "Potrero Nuevo", -33.20, -60.50, DataStatus.TESTING, organization_id=estancia.id
+        norte = MeasurementPoint(
+            name="Lote Norte", latitude=-33.12, longitude=-60.45, organization_id=estancia.id
         )
-        quinta = point("Quinta de Juan", -32.95, -60.66, user_id=juan.id)
+        sur = MeasurementPoint(
+            name="Lote Sur", latitude=-33.16, longitude=-60.47, organization_id=estancia.id
+        )
+        potrero = MeasurementPoint(
+            name="Potrero Nuevo",
+            latitude=-33.20,
+            longitude=-60.50,
+            organization_id=estancia.id,
+            status=DataStatus.TESTING,
+        )
+        quinta = MeasurementPoint(
+            name="Quinta de Juan", latitude=-32.95, longitude=-60.66, user_id=juan.id
+        )
         session.add_all(
             [
                 Membership(user_id=ana.id, organization_id=estancia.id),
@@ -61,16 +66,25 @@ async def seed() -> None:
         )
         await session.flush()
 
+        def alert(user, point, event_type, threshold):
+            return Alert(
+                user_id=user.id, point_id=point.id, event_type=event_type, threshold=threshold
+            )
+
         session.add_all(
             [
-                Alert(user_id=ana.id, point_id=norte.id, event_type=EventType.FROST, threshold=60),
-                Alert(user_id=ana.id, point_id=sur.id, event_type=EventType.RAIN, threshold=70),
-                Alert(user_id=juan.id, point_id=norte.id, event_type=EventType.FROST, threshold=40),
-                Alert(user_id=juan.id, point_id=quinta.id, event_type=EventType.HAIL, threshold=50),
+                alert(ana, norte, EventType.FROST, 60),
+                alert(ana, sur, EventType.RAIN, 70),
+                # Stays silent until a technician activates the point.
+                alert(ana, potrero, EventType.RAIN, 50),
+                alert(juan, norte, EventType.FROST, 40),
+                alert(juan, quinta, EventType.HAIL, 50),
+                # Staff hear about any point, even one they are not a member of.
+                alert(technician, quinta, EventType.STRONG_WIND, 45),
             ]
         )
         await session.commit()
-        log.info("Seeded 4 users, 1 organization, 4 points and 4 alerts")
+        log.info("Demo data loaded")
 
 
 async def main() -> None:

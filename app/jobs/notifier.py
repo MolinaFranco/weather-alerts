@@ -40,5 +40,5 @@ class LogNotifier:
     """Stands in for the WhatsApp client, which is out of scope."""
 
     async def send(self, notice: Notice) -> None:
-        masked_phone = f"{notice.phone[:4]}…{notice.phone[-3:]}"
+        masked_phone = f"{notice.phone[:4]}…{notice.phone[-4:]}"
         log.info("To %s: %s", masked_phone, notice.message)

@@ -1,11 +1,13 @@
 import asyncio
+import logging
 
 from sqlalchemy import select
 
 from app.config import settings
 from app.enums import NotificationStatus
+from app.loop import local_today, run_until_stopped
 from app.models import Notification
-from app.worker import local_today, run_cycle, run_until_stopped
+from app.worker import run_cycle
 from tests.factories import make_alert, make_forecast, make_point, make_user
 from tests.fakes import RecordingNotifier
 
@@ -57,7 +59,7 @@ async def test_the_loop_survives_a_failed_cycle():
             raise ConnectionError("database restarting")
         stop.set()
 
-    await run_until_stopped(stop, cycle, interval=0)
+    await run_until_stopped(stop, cycle, 0, logging.getLogger("test"))
 
     assert calls == 2
 
@@ -68,4 +70,4 @@ async def test_the_loop_stops_without_waiting_out_the_interval():
     async def cycle():
         asyncio.get_running_loop().call_later(0.05, stop.set)
 
-    await asyncio.wait_for(run_until_stopped(stop, cycle, interval=60), timeout=1)
+    await asyncio.wait_for(run_until_stopped(stop, cycle, 60, logging.getLogger("test")), timeout=1)
