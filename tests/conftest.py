@@ -10,11 +10,13 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.db import get_session
 from app.main import app
+from app.models import Base
 
 # NullPool: each test runs on its own event loop, so pooled connections can't be reused.
 engine = create_async_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
@@ -43,6 +45,18 @@ async def session():
         yield session
         await session.close()
         await transaction.rollback()
+
+
+@pytest.fixture
+async def committed_sessions():
+    """Sessions that really commit, for tests that need several connections at once.
+
+    Everything is truncated afterwards, so keep these tests few.
+    """
+    yield async_sessionmaker(engine, expire_on_commit=False)
+    tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
+    async with engine.begin() as connection:
+        await connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture
