@@ -59,12 +59,17 @@ async def run_until_stopped(
             await asyncio.wait_for(stop.wait(), timeout=interval)
 
 
-async def main() -> None:
+def stop_on_signals() -> asyncio.Event:
+    """An event set by SIGTERM (docker stop) or SIGINT (Ctrl-C) instead of dying mid-cycle."""
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stop.set)
+    return stop
 
+
+async def main() -> None:
+    stop = stop_on_signals()
     notifier = LogNotifier()
     await run_until_stopped(
         stop, lambda: run_cycle(SessionFactory, notifier, stop), settings.evaluation_interval
