@@ -8,11 +8,15 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+RUN useradd --create-home app
+
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
+
+USER app
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
