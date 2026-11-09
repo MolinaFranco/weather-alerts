@@ -5,6 +5,7 @@ os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://weather:weather@localhost:5432/weather_test",
 )
+os.environ["JWT_SECRET"] = "test-secret-at-least-32-bytes-long"
 
 import pytest
 from alembic import command
@@ -32,19 +33,26 @@ def migrated_database(alembic_config):
     command.upgrade(alembic_config, "head")
 
 
+def joined_session(connection) -> AsyncSession:
+    # Commits become savepoints inside the test's transaction, which is rolled back at the end.
+    return AsyncSession(
+        bind=connection, expire_on_commit=False, join_transaction_mode="create_savepoint"
+    )
+
+
 @pytest.fixture
-async def session():
-    """A session whose changes are rolled back after the test, even if the code commits."""
+async def connection():
     async with engine.connect() as connection:
         transaction = await connection.begin()
-        session = AsyncSession(
-            bind=connection,
-            expire_on_commit=False,
-            join_transaction_mode="create_savepoint",
-        )
-        yield session
-        await session.close()
+        yield connection
         await transaction.rollback()
+
+
+@pytest.fixture
+async def session(connection):
+    """A session whose changes are rolled back after the test, even if the code commits."""
+    async with joined_session(connection) as session:
+        yield session
 
 
 @pytest.fixture
@@ -60,8 +68,14 @@ async def committed_sessions():
 
 
 @pytest.fixture
-async def client(session):
-    app.dependency_overrides[get_session] = lambda: session
+async def client(connection, session):
+    # Each request gets its own session, as in production, on the test's transaction: it
+    # sees what the test created, and a request that fails doesn't disturb the test's session.
+    async def request_session():
+        async with joined_session(connection) as request_session:
+            yield request_session
+
+    app.dependency_overrides[get_session] = request_session
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()

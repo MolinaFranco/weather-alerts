@@ -3,6 +3,7 @@ from itertools import count
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import create_access_token
 from app.enums import EventType
 from app.models import (
     Alert,
@@ -15,6 +16,10 @@ from app.models import (
 )
 
 _sequence = count(1)
+
+
+def bearer(user: User) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user.id)}"}
 
 
 async def _save[T](session: AsyncSession, instance: T) -> T:
