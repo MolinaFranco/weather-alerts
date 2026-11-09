@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,8 +8,8 @@ class Settings(BaseSettings):
     database_url: str
     # Forecast dates are local to the fields, so "today" must be too.
     timezone: str = "America/Argentina/Buenos_Aires"
-    # Points a probability must rise over the last notice to notify again.
-    renotify_step: int = 15
+    # Percentage points above the last notice needed to notify again.
+    renotify_step: int = Field(default=15, ge=1)
 
 
 settings = Settings()
