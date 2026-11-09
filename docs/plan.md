@@ -447,9 +447,11 @@ afuera es gestión, no lo que se evalúa.
 - **Revisión:** ¿la consulta se entiende sin comentarios?
 
 ### Fase 3 — Envío y worker
-- [ ] `Notifier` (Protocol) + `LogNotifier`
-- [ ] `dispatch()` con `FOR UPDATE SKIP LOCKED`
-- [ ] `worker.py`: loop, intervalo por env, apagado limpio con SIGTERM
+- [x] `Notifier` (Protocol) + `LogNotifier`
+- [x] `dispatch()` con `FOR UPDATE SKIP LOCKED`
+- [x] `worker.py`: loop, intervalo por env, apagado limpio con SIGTERM. `EVALUATION_INTERVAL`
+  por defecto 60 s; conviene alinearlo con la frecuencia real de la ingesta. En la demo,
+  el worker y `fake_ingest` comparten un mismo intervalo de 10 s
 - **Test:** pendientes pasan a `sent`; si el notifier falla, a `failed`
 - **Test:** un fallo no frena el resto del lote
 - **Test:** un ciclo completo (evaluar + despachar) con un notifier falso
@@ -527,6 +529,8 @@ Se documentan en el README como mejoras futuras, no se implementan:
 - Refresh tokens, recuperación de contraseña, verificación de email y teléfono.
 - Avisar cuando la probabilidad baja ("ya no se espera helada").
 - Reintentos automáticos con backoff para avisos `failed`.
+- Evaluar apenas la ingesta escribe, con `LISTEN/NOTIFY` de Postgres, en vez de un
+  intervalo fijo.
 - Historial de quién cambió el estado de un punto o una muestra.
 
 ## 13. Preguntas para el cliente
