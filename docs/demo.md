@@ -66,7 +66,7 @@ docker compose logs -f worker
 Cada aviso es una línea así:
 
 ```
-INFO app.jobs.notifier: To +549…0301: Alerta de helada en Lote Norte: 63% de probabilidad para el 14/11.
+INFO app.jobs.notifier: To +549…0402: Alerta de helada en Lote Norte: 43% de probabilidad para el 14/11.
 ```
 
 - El envío por WhatsApp está simulado: el aviso se escribe en el log.
@@ -76,7 +76,8 @@ INFO app.jobs.notifier: To +549…0301: Alerta de helada en Lote Norte: 63% de p
 
 **Re-notificación.** Si la probabilidad de un día sigue subiendo, se vuelve a avisar cuando
 supera en 15 puntos o más al último aviso. Después de un par de minutos se ven cadenas como
-`granizo en Lote Sur: 39%` y más tarde `55%` para el mismo día. Para listarlas, ver
+`helada en Lote Norte: 43%`, más tarde `66%` y después `89%` para el mismo día (es la alerta
+de Juan, con umbral 40). Para listarlas, ver
 [la sección 10](#10-mirar-la-base-de-datos).
 
 La alerta de Ana sobre **Potrero Nuevo** no aparece nunca en los logs: el punto está en
@@ -115,7 +116,8 @@ Siguiendo como Ana:
 | `GET /users` | `403` | Listar usuarios es para técnicos |
 | `GET /organizations/1/members` | `200` | Ve a los miembros de su organización, pero solo id y nombre |
 
-Sin token, cualquier endpoint salvo el login responde `401`.
+Sin token, todos los endpoints responden `401`, salvo `/auth/register`, `/auth/token` y
+`/health`.
 
 ## 6. Activar un punto en testing (como técnico)
 
@@ -126,9 +128,10 @@ Entrá como `tecnico@example.com`.
 3. `PATCH /points/{point_id}` con `point_id` = 3 y el cuerpo `{"status": "active"}`.
 4. `GET /points/3/forecasts` otra vez: **los pronósticos siguen en `testing`.** Lo que llegó
    mientras el punto se calibraba es dato de prueba y no se activa.
-5. A medida que la ingesta manda lecturas nuevas, esos pronósticos pasan a `active`. En uno
-   o dos minutos, la alerta de lluvia de Ana sobre Potrero Nuevo empieza a aparecer en los
-   logs del worker, y Ana ya ve el punto en `GET /points`.
+5. Ana ya ve el punto en `GET /points`, pero sin pronósticos activos todavía.
+6. A medida que la ingesta manda lecturas nuevas (una cada 10 segundos), esos pronósticos
+   pasan a `active`. En cuanto alguna supera el 50%, la alerta de lluvia de Ana sobre
+   Potrero Nuevo aparece en los logs del worker.
 
 ## 7. Marcar un pronóstico anómalo
 
@@ -141,7 +144,8 @@ Como técnico:
 4. La marca vale para esa lectura: cuando la ingesta mande la próxima, vuelve a `active`.
 
 Si intentás activar un pronóstico de un punto en testing, la respuesta trae el estado que
-quedó guardado: `testing`.
+quedó guardado: `testing`. Una vez activo el punto, un técnico sí puede activar a mano un
+pronóstico que quedó del período de testing, si sabe que el valor es bueno.
 
 ## 8. Administrar usuarios (como admin)
 

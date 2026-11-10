@@ -1,6 +1,6 @@
 # Qué está testeado
 
-96 tests (157 casos contando los parametrizados), todos contra un Postgres real.
+99 tests (157 casos contando los parametrizados), todos contra un Postgres real.
 
 ## Cómo se corren
 
@@ -17,21 +17,23 @@ TEST_DATABASE_URL=postgresql+asyncpg://weather:weather@localhost:5433/weather_te
 
 ## Cómo están armados
 
-- **Postgres real, no SQLite.** El sistema depende de cosas de Postgres: enums, triggers,
-  `ON CONFLICT`, `SKIP LOCKED`, advisory locks. La base de test se migra una vez al
-  arrancar, con las mismas migraciones que producción.
-- **Una transacción por test.** Todo lo que hace un test, incluidos los `commit()` de la
-  API, se deshace al terminar. Los tests no se pisan y no hace falta limpiar a mano.
-- **Cada request de la API tiene su propia sesión**, como en producción, sobre la
-  transacción del test.
-- **Concurrencia con conexiones reales.** Los pocos tests que necesitan varias conexiones
-  a la vez commitean de verdad y vacían las tablas al final.
-- **Fábricas mínimas** (`tests/factories.py`) en vez de fixtures grandes: cada test crea
-  solo lo que usa.
-- **Mutaciones.** Las reglas críticas se verificaron rompiéndolas a propósito y
-  confirmando que su test falla: el filtro por estado del punto, el advisory lock,
-  `SKIP LOCKED`, el lock solo sobre la fila del aviso, la regla de visibilidad en el
-  evaluador y en el dispatcher, y el rearmado al subir el umbral.
+Corren contra un Postgres real y no contra SQLite, porque el sistema depende de enums,
+triggers, `ON CONFLICT`, `SKIP LOCKED` y advisory locks. La base de test se migra una vez al
+arrancar, con las mismas migraciones que producción.
+
+Todo lo que hace un test, incluidos los `commit()` de la API, corre dentro de una
+transacción que se deshace al terminar, así los tests no se pisan y no hace falta limpiar a
+mano. Cada request de la API tiene su propia sesión, como en producción, sobre esa misma
+transacción. Los pocos tests que necesitan varias conexiones a la vez (concurrencia)
+commitean de verdad y vacían las tablas al final.
+
+Los datos se arman con funciones chicas de `tests/factories.py`, y cada test crea solo lo
+que usa.
+
+Para las reglas más delicadas se comprobó que su test falla si se quita la regla: el filtro
+por estado del punto en el evaluador, el advisory lock, `SKIP LOCKED`, el lock solo sobre la
+fila del aviso, la regla de visibilidad en el evaluador y en el dispatcher, el rearmado al
+subir el umbral y que lo recibido durante el testing no se active.
 
 ## Base de datos y migraciones
 
@@ -50,7 +52,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://weather:weather@localhost:5433/weather_te
 | El umbral de una alerta va de 1 a 100 | `test_models.py::test_alert_threshold_is_between_1_and_100` |
 | Una alerta por usuario, punto y evento | `test_models.py::test_one_alert_per_user_point_and_event` |
 | El mismo aviso nunca se guarda dos veces | `test_models.py::test_the_same_notification_is_never_stored_twice` |
-| Borrar un punto borra sus pronósticos y alertas | `test_models.py::test_deleting_a_point_removes_its_samples_and_alerts` |
+| Borrar un punto borra sus pronósticos y alertas | `test_models.py::test_deleting_a_point_removes_its_forecasts_and_alerts` |
 
 ## Estado de puntos y pronósticos (triggers)
 
@@ -69,7 +71,7 @@ Probado con upserts, que es como escribe la ingesta.
 ## Evaluación de alertas
 
 La evaluación está escrita de dos formas equivalentes: con SQL (`app/jobs/evaluator.py`, la
-que usa el worker) y con el query builder de SQLAlchemy (`app/jobs/evaluator_core.py`, como
+que usa el worker) y con el query builder de SQLAlchemy (`app/jobs/evaluator_query_builder.py`, como
 alternativa para comparar). Cada test de esta sección corre contra las dos.
 
 | Qué se prueba | Test |
@@ -79,7 +81,7 @@ alternativa para comparar). Cada test de esta sección corre contra las dos.
 | Ignora días pasados | `test_evaluator.py::test_ignores_past_days` |
 | Ignora alertas pausadas | `test_evaluator.py::test_ignores_inactive_alerts` |
 | Ignora pronósticos o puntos que no están activos | `test_evaluator.py::test_ignores_data_that_is_not_active` |
-| Un punto que pasa a testing deja de avisar por sus pronósticos ya guardados | `test_evaluator.py::test_a_point_put_in_testing_stops_notifying_its_existing_samples` |
+| Un punto que pasa a testing deja de avisar por sus pronósticos ya guardados | `test_evaluator.py::test_a_point_put_in_testing_stops_notifying_its_existing_forecasts` |
 | Correr la evaluación dos veces no duplica avisos | `test_evaluator.py::test_running_twice_does_not_notify_twice` |
 | Re-avisa solo si la probabilidad sube 15 puntos o más (65 → 79 → 50 → 80 → 90 avisa en 65 y 80) | `test_evaluator.py::test_notifies_again_only_when_the_probability_rises_enough` |
 | Un aviso que falló no cuenta como enviado | `test_evaluator.py::test_a_notice_that_never_reached_the_user_does_not_count` |
@@ -157,12 +159,12 @@ alternativa para comparar). Cada test de esta sección corre contra las dos.
 | Un punto necesita exactamente un dueño (validación de la API) | `test_points.py::test_a_point_needs_exactly_one_owner` |
 | Dueño inexistente da 422; nombre repetido da 409 | `test_points.py::test_a_point_for_a_missing_owner_or_with_a_taken_name_is_refused` |
 | Al modificar un punto devuelve las coordenadas guardadas | `test_points.py::test_an_updated_point_returns_the_coordinates_as_stored` |
-| Clientes reciben solo pronósticos activos; staff, todos | `test_points.py::test_clients_only_get_active_samples_and_staff_get_all` |
-| Los pronósticos se filtran por fecha | `test_points.py::test_samples_can_be_filtered_by_date` |
+| Clientes reciben solo pronósticos activos; staff, todos | `test_points.py::test_clients_only_get_active_forecasts_and_staff_get_all` |
+| Los pronósticos se filtran por fecha | `test_points.py::test_forecasts_can_be_filtered_by_date` |
 | Un rango de fechas al revés da 422 | `test_points.py::test_a_date_range_that_ends_before_it_starts_is_rejected` |
-| Pronósticos de un punto ajeno dan 404 | `test_points.py::test_samples_of_a_point_you_cant_see_are_a_404` |
-| Marcar un pronóstico devuelve el estado que quedó en la base | `test_points.py::test_marking_a_sample_returns_the_status_the_database_kept` |
-| Admins borran puntos y pronósticos | `test_points.py::test_admins_delete_points_and_samples` |
+| Pronósticos de un punto ajeno dan 404 | `test_points.py::test_forecasts_of_a_point_you_cant_see_are_a_404` |
+| Marcar un pronóstico devuelve el estado que quedó en la base | `test_points.py::test_marking_a_forecast_returns_the_status_the_database_kept` |
+| Admins borran puntos y pronósticos | `test_points.py::test_admins_delete_points_and_forecasts` |
 | Un cliente crea una alerta sobre un punto que ve | `test_alerts.py::test_a_client_creates_an_alert_on_a_point_they_see` |
 | Alertas sobre puntos ajenos o en testing dan 404 | `test_alerts.py::test_alerts_on_points_you_cant_see_are_a_404` |
 | Una alerta por punto y evento, umbral de 1 a 100 | `test_alerts.py::test_one_alert_per_point_and_event_with_a_threshold_from_1_to_100` |

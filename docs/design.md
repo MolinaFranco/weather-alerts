@@ -103,9 +103,9 @@ para el evaluador, `memberships(organization_id)` para listar miembros, y un ín
 | Cliente | Los propios y los de sus organizaciones, solo `active` | Solo `active`, de esos puntos | Solo los suyos |
 | Técnico y admin | Todos, en cualquier estado | Todos | Solo los suyos |
 
-- Las reglas están en `app/access.py`. El evaluador y el dispatcher aplican la misma: si
-  alguien deja una organización, sus alertas sobre los puntos de esa organización dejan de
-  avisar.
+- Las reglas están en `app/access.py`. El evaluador y el dispatcher repiten la misma regla en
+  su propia consulta: si alguien deja una organización, sus alertas sobre los puntos de esa
+  organización dejan de avisar.
 - Pedir algo que no se puede ver responde `404`, no `403`, para no revelar qué ids existen.
 
 ## Estados de puntos y pronósticos
@@ -120,8 +120,9 @@ para el evaluador, `memberships(organization_id)` para listar miembros, y un ín
   lo que ya tenía: un valor disparatado de un sensor en calibración no dispara alertas
   cuando el punto pasa a activo. Las lecturas siguientes sí cuentan.
 - Un técnico puede marcar un pronóstico puntual como `testing` o `disabled` (por ejemplo, un
-  valor anómalo). La marca dura hasta la próxima lectura. No se puede activar un pronóstico
-  de un punto que no está activo.
+  valor anómalo), o activar a mano uno del período de testing si sabe que es bueno. La marca
+  dura hasta la próxima lectura. No se puede activar un pronóstico de un punto que no está
+  activo.
 - Solo pronósticos `active` de puntos `active` disparan alertas.
 
 Estas reglas están en un trigger de Postgres (`sync_sample_status`), porque la ingesta es un
@@ -149,7 +150,7 @@ Todo es una sola consulta, en `app/jobs/evaluator.py`:
 3. `ON CONFLICT DO NOTHING` descarta lo que ya existe.
 
 Antes de la consulta, un advisory lock de Postgres hace que dos evaluaciones no se
-superpongan. `app/jobs/evaluator_core.py` tiene la misma consulta escrita con el query
+superpongan. `app/jobs/evaluator_query_builder.py` tiene la misma consulta escrita con el query
 builder de SQLAlchemy, como alternativa para comparar; los tests corren contra las dos.
 
 ## Envío
@@ -174,21 +175,23 @@ sequenceDiagram
     end
 ```
 
-- **Un aviso por transacción.** Si el proceso muere después de enviar y antes del commit,
-  ese aviso se reenvía: la entrega es *at-least-once*, acotada a un mensaje.
-- **Reintentos** a 1, 2, 4 y 8 minutos; al quinto fallo queda `failed`.
-- **Varios workers** se reparten la cola con `SKIP LOCKED`. El lock es solo sobre la fila
-  del aviso, así dos avisos del mismo usuario se pueden enviar en paralelo.
+Cada aviso va en su propia transacción. Si el proceso muere después de enviar y antes del
+commit, ese aviso se reenvía: la entrega es *at-least-once*, acotada a un mensaje. Los
+envíos fallidos se reintentan a 1, 2, 4 y 8 minutos, y al quinto fallo el aviso queda
+`failed`.
+
+Varios workers se reparten la cola con `SKIP LOCKED`. El lock es solo sobre la fila del
+aviso, así dos avisos del mismo usuario se pueden enviar en paralelo.
 
 ## Autenticación y roles
 
-- **Login** en `POST /auth/token` con el formulario estándar de OAuth2: `username` puede ser
-  el email (web) o el teléfono (WhatsApp). Devuelve un JWT firmado con `JWT_SECRET` que vence
-  en `ACCESS_TOKEN_MINUTES` (60 por defecto).
-- **Contraseñas** con argon2.
-- **El rol se lee de la base en cada request**: un cambio de rol o un usuario borrado
-  aplican al instante.
-- **Roles globales y acumulativos:**
+El login es `POST /auth/token`, con el formulario estándar de OAuth2: `username` puede ser
+el email (web) o el teléfono (WhatsApp). Devuelve un JWT firmado con `JWT_SECRET` que vence
+en `ACCESS_TOKEN_MINUTES` (60 por defecto). Las contraseñas se guardan con argon2. El rol se
+lee de la base en cada request, así un cambio de rol o un usuario borrado aplican al
+instante.
+
+Los roles son globales y acumulativos:
 
 | Rol | Puede |
 |---|---|
@@ -251,7 +254,8 @@ app/
   routes/              un módulo por recurso
   jobs/
     evaluator.py       la consulta de evaluación (SQL)
-    evaluator_core.py  la misma, con el query builder (alternativa)
+    evaluator_query_builder.py
+                       la misma, con el query builder (alternativa)
     dispatcher.py      el envío de avisos
     notifier.py        el aviso y la interfaz de envío
   loop.py              el loop compartido por los procesos en background
