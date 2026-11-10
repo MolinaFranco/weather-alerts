@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import select, update
 
-from app.enums import DataStatus, EventType, NotificationStatus, Role
+from app.enums import EventType, NotificationStatus, OperationalStatus, Role
 from app.jobs import evaluator, evaluator_core
 from app.models import Notification, WeatherForecast
 from tests.factories import (
@@ -80,11 +80,11 @@ async def test_ignores_inactive_alerts(session, evaluate):
 
 
 async def test_ignores_data_that_is_not_active(session, evaluate):
-    testing_point, _ = await watched_point(session, status=DataStatus.TESTING)
+    testing_point, _ = await watched_point(session, status=OperationalStatus.TESTING)
     await make_forecast(session, testing_point, forecast_date=TODAY, probability=90)
     point, _ = await watched_point(session)
     sample = await make_forecast(session, point, forecast_date=TODAY, probability=90)
-    sample.status = DataStatus.DISABLED
+    sample.status = OperationalStatus.DISABLED
     await session.flush()
 
     assert await evaluate(session, TODAY, STEP) == 0
@@ -94,7 +94,7 @@ async def test_a_point_put_in_testing_stops_notifying_its_existing_samples(sessi
     point, _ = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=90)
 
-    point.status = DataStatus.TESTING
+    point.status = OperationalStatus.TESTING
     await session.flush()
 
     assert await evaluate(session, TODAY, STEP) == 0

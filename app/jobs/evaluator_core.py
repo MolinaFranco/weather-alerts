@@ -11,7 +11,7 @@ from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DataStatus, NotificationStatus
+from app.enums import NotificationStatus, OperationalStatus
 from app.jobs.dispatcher import recipient_can_see_point
 from app.jobs.evaluator import EVALUATION_LOCK
 from app.models import Alert, MeasurementPoint, Notification, User, WeatherForecast
@@ -54,8 +54,8 @@ def evaluate_alerts(today: date, step: int):
         )
         .where(
             Alert.is_active,
-            MeasurementPoint.status == DataStatus.ACTIVE,
-            WeatherForecast.status == DataStatus.ACTIVE,
+            MeasurementPoint.status == OperationalStatus.ACTIVE,
+            WeatherForecast.status == OperationalStatus.ACTIVE,
             recipient_can_see_point,
             WeatherForecast.forecast_date >= today,
             WeatherForecast.probability >= Alert.threshold,

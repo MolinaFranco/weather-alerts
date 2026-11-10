@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.auth import hash_password
 from app.db import SessionFactory, engine
-from app.enums import DataStatus, EventType, Role
+from app.enums import EventType, OperationalStatus, Role
 from app.models import Alert, MeasurementPoint, Membership, Organization, User
 
 log = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ async def seed() -> None:
             latitude=-33.20,
             longitude=-60.50,
             organization_id=estancia.id,
-            status=DataStatus.TESTING,
+            status=OperationalStatus.TESTING,
         )
         quinta = MeasurementPoint(
             name="Quinta de Juan", latitude=-32.95, longitude=-60.66, user_id=juan.id

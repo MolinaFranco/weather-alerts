@@ -7,7 +7,7 @@ class Role(StrEnum):
     ADMIN = "admin"
 
 
-class DataStatus(StrEnum):
+class OperationalStatus(StrEnum):
     ACTIVE = "active"
     TESTING = "testing"
     DISABLED = "disabled"

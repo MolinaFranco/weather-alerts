@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.enums import DataStatus, Role
+from app.enums import OperationalStatus, Role
 from tests.factories import (
     bearer,
     make_forecast,
@@ -19,7 +19,7 @@ async def test_clients_see_their_own_and_their_organizations_active_points(clien
     await make_membership(session, ana, organization)
     own = await make_point(session, user_id=ana.id)
     shared = await make_point(session, organization_id=organization.id)
-    await make_point(session, organization_id=organization.id, status=DataStatus.TESTING)
+    await make_point(session, organization_id=organization.id, status=OperationalStatus.TESTING)
     await make_point(session, user_id=(await make_user(session)).id)
     await make_point(session)
 
@@ -30,7 +30,7 @@ async def test_clients_see_their_own_and_their_organizations_active_points(clien
 
 async def test_staff_see_every_point_in_any_status(client, session):
     technician = await make_user(session, role=Role.TECHNICIAN)
-    testing = await make_point(session, status=DataStatus.TESTING)
+    testing = await make_point(session, status=OperationalStatus.TESTING)
 
     response = await client.get("/points", headers=bearer(technician))
 
@@ -56,8 +56,8 @@ async def test_staff_create_and_update_points(client, session):
     )
 
     assert created.status_code == 201
-    assert created.json()["status"] == DataStatus.ACTIVE
-    assert updated.json()["status"] == DataStatus.TESTING
+    assert created.json()["status"] == OperationalStatus.ACTIVE
+    assert updated.json()["status"] == OperationalStatus.TESTING
 
 
 async def test_a_point_needs_exactly_one_owner(client, session):
@@ -79,7 +79,7 @@ async def test_clients_only_get_active_samples_and_staff_get_all(client, session
     point = await make_point(session, user_id=ana.id)
     active = await make_forecast(session, point, forecast_date=DAY)
     anomalous = await make_forecast(session, point, forecast_date=date(2030, 6, 2))
-    anomalous.status = DataStatus.DISABLED
+    anomalous.status = OperationalStatus.DISABLED
     await session.flush()
     path = f"/points/{point.id}/forecasts"
 
@@ -114,14 +114,14 @@ async def test_samples_of_a_point_you_cant_see_are_a_404(client, session):
 
 async def test_marking_a_sample_returns_the_status_the_database_kept(client, session):
     technician = await make_user(session, role=Role.TECHNICIAN)
-    point = await make_point(session, status=DataStatus.TESTING)
+    point = await make_point(session, status=OperationalStatus.TESTING)
     sample = await make_forecast(session, point, forecast_date=DAY)
 
     response = await client.patch(
         f"/forecasts/{sample.id}", headers=bearer(technician), json={"status": "active"}
     )
 
-    assert response.json()["status"] == DataStatus.TESTING
+    assert response.json()["status"] == OperationalStatus.TESTING
 
 
 async def test_admins_delete_points_and_samples(client, session):
@@ -157,7 +157,7 @@ async def test_a_point_for_a_missing_owner_or_with_a_taken_name_is_refused(clien
 
 async def test_a_client_cant_see_their_own_point_while_it_is_in_testing(client, session):
     ana = await make_user(session)
-    point = await make_point(session, user_id=ana.id, status=DataStatus.TESTING)
+    point = await make_point(session, user_id=ana.id, status=OperationalStatus.TESTING)
 
     response = await client.get(f"/points/{point.id}/forecasts", headers=bearer(ana))
 

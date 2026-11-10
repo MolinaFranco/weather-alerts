@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import func, select, update
 
-from app.enums import DataStatus, EventType, NotificationStatus
+from app.enums import EventType, NotificationStatus, OperationalStatus
 from app.jobs import dispatcher
 from app.jobs.dispatcher import MAX_ATTEMPTS, dispatch_next
 from app.jobs.notifier import Notice
@@ -75,7 +75,7 @@ async def test_skips_notices_that_no_longer_apply(session):
     past_day = await queued_notice(session, forecast_date=TODAY - timedelta(days=1))
     (await session.get(Alert, paused.alert_id)).is_active = False
     testing_alert = await session.get(Alert, in_testing.alert_id)
-    (await session.get(MeasurementPoint, testing_alert.point_id)).status = DataStatus.TESTING
+    (await session.get(MeasurementPoint, testing_alert.point_id)).status = OperationalStatus.TESTING
     await session.flush()
     notifier = RecordingNotifier()
 

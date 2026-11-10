@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import DataStatus, NotificationStatus, Role
+from app.enums import NotificationStatus, OperationalStatus, Role
 from app.jobs.notifier import Notice, Notifier
 from app.models import Alert, MeasurementPoint, Membership, Notification, User
 
@@ -31,7 +31,7 @@ NEXT_DUE = (
         Alert.event_type,
         (
             Alert.is_active
-            & (MeasurementPoint.status == DataStatus.ACTIVE)
+            & (MeasurementPoint.status == OperationalStatus.ACTIVE)
             & recipient_can_see_point
         ).label("still_wanted"),
     )

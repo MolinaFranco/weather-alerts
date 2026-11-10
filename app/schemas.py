@@ -13,7 +13,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.enums import DataStatus, EventType, NotificationStatus, Role
+from app.enums import EventType, NotificationStatus, OperationalStatus, Role
 
 # Field types shared by the schemas below, so each rule is written once.
 
@@ -110,7 +110,7 @@ class PointUpdate(BaseModel):
     name: Name | None = None
     latitude: Latitude | None = None
     longitude: Longitude | None = None
-    status: DataStatus | None = None
+    status: OperationalStatus | None = None
 
 
 class PointOut(FromOrm):
@@ -120,7 +120,7 @@ class PointOut(FromOrm):
     longitude: float
     organization_id: int | None
     user_id: int | None
-    status: DataStatus
+    status: OperationalStatus
 
 
 class ForecastOut(FromOrm):
@@ -128,11 +128,11 @@ class ForecastOut(FromOrm):
     forecast_date: date
     event_type: EventType
     probability: int
-    status: DataStatus
+    status: OperationalStatus
 
 
 class ForecastUpdate(BaseModel):
-    status: DataStatus
+    status: OperationalStatus
 
 
 class AlertCreate(BaseModel):

@@ -5,7 +5,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import is_staff
-from app.enums import DataStatus
+from app.enums import OperationalStatus
 from app.models import MeasurementPoint, Membership, Organization, User
 
 
@@ -26,7 +26,7 @@ def visible_points(user: User) -> Select:
     if is_staff(user):
         return query
     return query.where(
-        MeasurementPoint.status == DataStatus.ACTIVE,
+        MeasurementPoint.status == OperationalStatus.ACTIVE,
         or_(
             MeasurementPoint.user_id == user.id,
             MeasurementPoint.organization_id.in_(my_organization_ids(user)),

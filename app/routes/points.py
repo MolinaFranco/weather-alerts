@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.access import get_or_404, get_visible_point, visible_points
 from app.auth import Admin, CurrentUser, Technician, is_staff
 from app.db import SessionDep
-from app.enums import DataStatus
+from app.enums import OperationalStatus
 from app.models import MeasurementPoint, WeatherForecast
 from app.schemas import ForecastOut, ForecastUpdate, PathId, PointCreate, PointOut, PointUpdate
 
@@ -61,7 +61,7 @@ async def list_forecasts(
     await get_visible_point(session, user, point_id)
     query = select(WeatherForecast).where(WeatherForecast.point_id == point_id)
     if not is_staff(user):
-        query = query.where(WeatherForecast.status == DataStatus.ACTIVE)
+        query = query.where(WeatherForecast.status == OperationalStatus.ACTIVE)
     if since:
         query = query.where(WeatherForecast.forecast_date >= since)
     if until:

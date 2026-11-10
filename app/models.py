@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.enums import DataStatus, EventType, NotificationStatus, Role
+from app.enums import EventType, NotificationStatus, OperationalStatus, Role
 
 
 def pg_enum(enum: type[StrEnum], name: str) -> Enum:
@@ -94,8 +94,8 @@ class MeasurementPoint(Base):
     name: Mapped[str] = mapped_column(String(100))
     latitude: Mapped[Decimal] = mapped_column(Numeric(8, 6))
     longitude: Mapped[Decimal] = mapped_column(Numeric(9, 6))
-    status: Mapped[DataStatus] = mapped_column(
-        pg_enum(DataStatus, "data_status"), server_default=DataStatus.ACTIVE
+    status: Mapped[OperationalStatus] = mapped_column(
+        pg_enum(OperationalStatus, "operational_status"), server_default=OperationalStatus.ACTIVE
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
@@ -114,8 +114,8 @@ class WeatherForecast(Base):
     forecast_date: Mapped[date] = mapped_column(Date)
     event_type: Mapped[EventType] = mapped_column(pg_enum(EventType, "event_type"))
     probability: Mapped[int] = mapped_column(SmallInteger)
-    status: Mapped[DataStatus] = mapped_column(
-        pg_enum(DataStatus, "data_status"), server_default=DataStatus.ACTIVE
+    status: Mapped[OperationalStatus] = mapped_column(
+        pg_enum(OperationalStatus, "operational_status"), server_default=OperationalStatus.ACTIVE
     )
     # Kept up to date by the sync_sample_status trigger, since the ingestion writes plain SQL.
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())

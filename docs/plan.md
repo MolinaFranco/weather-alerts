@@ -107,7 +107,7 @@ erDiagram
         string name "ej: el nombre del campo"
         numeric latitude
         numeric longitude
-        data_status status "active | testing | disabled"
+        operational_status status "active | testing | disabled"
         timestamptz created_at
     }
     weather_forecasts {
@@ -116,7 +116,7 @@ erDiagram
         date forecast_date
         event_type event_type
         smallint probability "0..100"
-        data_status status "active | testing | disabled"
+        operational_status status "active | testing | disabled"
         timestamptz updated_at
     }
     alerts {
@@ -164,7 +164,7 @@ todas las rutas.
 
 ### Estado de puntos y muestras
 
-Un solo enum `data_status = active | testing | disabled` para los dos.
+Un solo enum `operational_status = active | testing | disabled` para los dos.
 
 - Un técnico pone un punto en `testing` mientras se instala o calibra, o en `disabled`
   si deja de usarse.
@@ -201,7 +201,7 @@ Constraints clave:
 `memberships(organization_id)` para listar miembros y `notifications(id) WHERE status =
 'pending'` para el dispatcher.
 
-Enums: `user_role = client | technician | admin`, `data_status = active | testing | disabled`,
+Enums: `user_role = client | technician | admin`, `operational_status = active | testing | disabled`,
 `event_type = frost | rain | hail | strong_wind | heat_wave`,
 `notification_status = pending | sent | failed`.
 

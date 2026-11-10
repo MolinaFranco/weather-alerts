@@ -1,4 +1,4 @@
-from app.enums import DataStatus
+from app.enums import OperationalStatus
 from tests.factories import bearer, make_alert, make_point, make_user
 
 
@@ -20,7 +20,7 @@ async def test_a_client_creates_an_alert_on_a_point_they_see(client, session):
 async def test_alerts_on_points_you_cant_see_are_a_404(client, session):
     ana = await make_user(session)
     someone_elses = await make_point(session)
-    in_testing = await make_point(session, user_id=ana.id, status=DataStatus.TESTING)
+    in_testing = await make_point(session, user_id=ana.id, status=OperationalStatus.TESTING)
 
     for point in (someone_elses, in_testing):
         response = await client.post(
