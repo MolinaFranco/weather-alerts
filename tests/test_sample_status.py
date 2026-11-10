@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.enums import EventType, OperationalStatus
@@ -26,6 +26,12 @@ async def ingest(session, point, probability, day=DAY):
 async def set_point_status(session, point, status):
     await session.execute(
         update(MeasurementPoint).where(MeasurementPoint.id == point.id).values(status=status)
+    )
+
+
+async def status_of(session, point):
+    return await session.scalar(
+        select(WeatherForecast.status).where(WeatherForecast.point_id == point.id)
     )
 
 
@@ -55,15 +61,15 @@ async def test_new_data_on_a_point_that_was_disabled_is_disabled(session):
     assert await ingest(session, point, 65) == OperationalStatus.DISABLED
 
 
-async def test_a_manual_mark_lasts_until_a_new_probability_arrives(session):
+async def test_a_manual_mark_lasts_until_the_next_reading(session):
     point = await make_point(session)
     await ingest(session, point, 95)
 
-    assert (
-        await mark_sample(session, point, OperationalStatus.DISABLED) == OperationalStatus.DISABLED
-    )
-    assert await ingest(session, point, 95) == OperationalStatus.DISABLED
-    assert await ingest(session, point, 30) == OperationalStatus.ACTIVE
+    marked = await mark_sample(session, point, OperationalStatus.DISABLED)
+    next_reading = await ingest(session, point, 95)
+
+    assert marked == OperationalStatus.DISABLED
+    assert next_reading == OperationalStatus.ACTIVE
 
 
 async def test_a_sample_cannot_be_activated_while_its_point_is_testing(session):
@@ -84,12 +90,21 @@ async def test_updates_refresh_updated_at(session):
     assert sample.updated_at > long_ago
 
 
-async def test_activating_a_point_activates_its_upcoming_samples(session):
+async def test_readings_from_the_testing_period_stay_test_data(session):
+    # A faulty sensor sends 100% while the point is in testing; once it is fixed and the
+    # point goes live, that bogus value must not fire alerts. The next reading does count.
     point = await make_point(session, status=OperationalStatus.TESTING)
-    await ingest(session, point, 80)
-    await ingest(session, point, 80, day=date(2020, 1, 1))
+    await ingest(session, point, 100)
 
     await set_point_status(session, point, OperationalStatus.ACTIVE)
 
+    assert await status_of(session, point) == OperationalStatus.TESTING
+    assert await ingest(session, point, 10) == OperationalStatus.ACTIVE
+
+
+async def test_a_reading_that_repeats_the_value_is_still_a_new_reading(session):
+    point = await make_point(session, status=OperationalStatus.TESTING)
+    await ingest(session, point, 80)
+    await set_point_status(session, point, OperationalStatus.ACTIVE)
+
     assert await ingest(session, point, 80) == OperationalStatus.ACTIVE
-    assert await ingest(session, point, 80, day=date(2020, 1, 1)) == OperationalStatus.TESTING

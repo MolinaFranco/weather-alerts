@@ -168,15 +168,17 @@ Un solo enum `operational_status = active | testing | disabled` para los dos.
 
 - Un técnico pone un punto en `testing` mientras se instala o calibra, o en `disabled`
   si deja de usarse.
-- **Cada dato nuevo toma el estado actual del punto.** Lo hace un trigger de Postgres
+- **Cada lectura nueva toma el estado actual del punto.** Lo hace un trigger de Postgres
   (`sync_sample_status`, `BEFORE INSERT OR UPDATE` en `weather_forecasts`): la ingesta es
   un sistema externo que no controlamos, así que la regla tiene que vivir en la base y no
-  en nuestro código. "Dato nuevo" es una fila nueva o un cambio de probabilidad.
-- Como la ingesta reescribe los próximos días en cada pasada, cuando un punto pasa a
-  activo sus pronósticos se activan con el siguiente dato real.
+  en nuestro código. Una lectura es cualquier escritura de la ingesta, aunque repita el
+  valor.
+- **Lo que llegó durante el testing sigue siendo dato de prueba.** Activar un punto no
+  toca lo que ya tenía: un valor disparatado de un sensor en calibración no dispara
+  alertas cuando el punto pasa a activo. Las lecturas siguientes sí cuentan.
 - Un técnico puede marcar una muestra puntual como `testing` o `disabled` (ej. un valor
-  anómalo). La marca dura hasta que llega una probabilidad nueva para esa muestra.
-  Mientras el punto no esté activo, sus muestras no se pueden activar.
+  anómalo). La marca vale para esa lectura y dura hasta la siguiente. Mientras el punto no
+  esté activo, sus muestras no se pueden activar.
 - El mismo trigger mantiene `updated_at`, porque la ingesta no pasa por el ORM.
 - **Solo muestras `active` de puntos `active` disparan alertas.**
 

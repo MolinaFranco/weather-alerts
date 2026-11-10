@@ -1,6 +1,6 @@
 # Qué está testeado
 
-95 tests (156 casos contando los parametrizados), todos contra un Postgres real.
+96 tests (157 casos contando los parametrizados), todos contra un Postgres real.
 
 ## Cómo se corren
 
@@ -60,9 +60,10 @@ Probado con upserts, que es como escribe la ingesta.
 |---|---|
 | Un pronóstico que llega a un punto en testing o dado de baja toma ese estado | `test_sample_status.py::test_samples_take_the_status_of_a_point_that_is_not_active` |
 | Datos nuevos de un punto dado de baja quedan dados de baja | `test_sample_status.py::test_new_data_on_a_point_that_was_disabled_is_disabled` |
-| Una marca manual dura hasta que llega una probabilidad nueva | `test_sample_status.py::test_a_manual_mark_lasts_until_a_new_probability_arrives` |
+| Una marca manual dura hasta la próxima lectura | `test_sample_status.py::test_a_manual_mark_lasts_until_the_next_reading` |
 | No se puede activar un pronóstico mientras su punto está en testing | `test_sample_status.py::test_a_sample_cannot_be_activated_while_its_point_is_testing` |
-| Activar un punto activa sus pronósticos de los próximos días, no el historial | `test_sample_status.py::test_activating_a_point_activates_its_upcoming_samples` |
+| Lo recibido durante el testing sigue siendo de prueba al activar el punto; la próxima lectura sí cuenta | `test_sample_status.py::test_readings_from_the_testing_period_stay_test_data` |
+| Una lectura que repite el valor igual cuenta como lectura nueva | `test_sample_status.py::test_a_reading_that_repeats_the_value_is_still_a_new_reading` |
 | Cada actualización renueva `updated_at`, aunque escriba un sistema externo | `test_sample_status.py::test_updates_refresh_updated_at` |
 
 ## Evaluación de alertas
