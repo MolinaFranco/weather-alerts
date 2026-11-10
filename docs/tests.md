@@ -1,6 +1,6 @@
 # Qué está testeado
 
-95 tests (140 casos contando los parametrizados), todos contra un Postgres real.
+95 tests (156 casos contando los parametrizados), todos contra un Postgres real.
 
 ## Cómo se corren
 
@@ -66,6 +66,10 @@ Probado con upserts, que es como escribe la ingesta.
 | Cada actualización renueva `updated_at`, aunque escriba un sistema externo | `test_sample_status.py::test_updates_refresh_updated_at` |
 
 ## Evaluación de alertas
+
+La evaluación está escrita de dos formas equivalentes: con SQL (`app/jobs/evaluator.py`, la
+que usa el worker) y con el query builder de SQLAlchemy (`app/jobs/evaluator_core.py`, como
+alternativa para comparar). Cada test de esta sección corre contra las dos.
 
 | Qué se prueba | Test |
 |---|---|

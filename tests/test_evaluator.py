@@ -1,10 +1,11 @@
 import asyncio
 from datetime import date, timedelta
 
+import pytest
 from sqlalchemy import select, update
 
 from app.enums import DataStatus, EventType, NotificationStatus, Role
-from app.jobs.evaluator import evaluate
+from app.jobs import evaluator, evaluator_core
 from app.models import Notification, WeatherForecast
 from tests.factories import (
     make_alert,
@@ -14,6 +15,13 @@ from tests.factories import (
     make_point,
     make_user,
 )
+
+
+@pytest.fixture(params=[evaluator, evaluator_core], ids=["raw_sql", "query_builder"])
+def evaluate(request):
+    """Both ways of writing the evaluation must behave the same, so each test runs on both."""
+    return request.param.evaluate
+
 
 TODAY = date(2030, 6, 1)
 TOMORROW = TODAY + timedelta(days=1)
@@ -37,7 +45,7 @@ async def watched_point(session, **point_fields):
     return point, alert
 
 
-async def test_notifies_when_the_probability_reaches_the_threshold(session):
+async def test_notifies_when_the_probability_reaches_the_threshold(session, evaluate):
     point, alert = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=60)
     await make_forecast(session, point, forecast_date=TOMORROW, probability=59)
@@ -46,7 +54,7 @@ async def test_notifies_when_the_probability_reaches_the_threshold(session):
     assert await notified(session, alert) == [60]
 
 
-async def test_ignores_other_events(session):
+async def test_ignores_other_events(session, evaluate):
     point, _ = await watched_point(session)
     await make_forecast(
         session, point, forecast_date=TODAY, event_type=EventType.RAIN, probability=90
@@ -55,14 +63,14 @@ async def test_ignores_other_events(session):
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_ignores_past_days(session):
+async def test_ignores_past_days(session, evaluate):
     point, _ = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY - timedelta(days=1), probability=90)
 
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_ignores_inactive_alerts(session):
+async def test_ignores_inactive_alerts(session, evaluate):
     point, alert = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=90)
     alert.is_active = False
@@ -71,7 +79,7 @@ async def test_ignores_inactive_alerts(session):
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_ignores_data_that_is_not_active(session):
+async def test_ignores_data_that_is_not_active(session, evaluate):
     testing_point, _ = await watched_point(session, status=DataStatus.TESTING)
     await make_forecast(session, testing_point, forecast_date=TODAY, probability=90)
     point, _ = await watched_point(session)
@@ -82,7 +90,7 @@ async def test_ignores_data_that_is_not_active(session):
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_a_point_put_in_testing_stops_notifying_its_existing_samples(session):
+async def test_a_point_put_in_testing_stops_notifying_its_existing_samples(session, evaluate):
     point, _ = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=90)
 
@@ -92,7 +100,7 @@ async def test_a_point_put_in_testing_stops_notifying_its_existing_samples(sessi
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_running_twice_does_not_notify_twice(session):
+async def test_running_twice_does_not_notify_twice(session, evaluate):
     point, alert = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=70)
 
@@ -101,7 +109,7 @@ async def test_running_twice_does_not_notify_twice(session):
     assert await notified(session, alert) == [70]
 
 
-async def test_notifies_again_only_when_the_probability_rises_enough(session):
+async def test_notifies_again_only_when_the_probability_rises_enough(session, evaluate):
     point, alert = await watched_point(session)
     sample = await make_forecast(session, point, forecast_date=TODAY, probability=65)
     await evaluate(session, TODAY, STEP)
@@ -114,7 +122,7 @@ async def test_notifies_again_only_when_the_probability_rises_enough(session):
     assert await notified(session, alert) == [65, 80]
 
 
-async def test_a_notice_that_never_reached_the_user_does_not_count(session):
+async def test_a_notice_that_never_reached_the_user_does_not_count(session, evaluate):
     point, alert = await watched_point(session)
     sample = await make_forecast(session, point, forecast_date=TODAY, probability=65)
     await evaluate(session, TODAY, STEP)
@@ -127,7 +135,7 @@ async def test_a_notice_that_never_reached_the_user_does_not_count(session):
     assert await notified(session, alert) == [65, 70]
 
 
-async def test_each_day_is_notified_on_its_own(session):
+async def test_each_day_is_notified_on_its_own(session, evaluate):
     point, alert = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=70)
     await make_forecast(session, point, forecast_date=TOMORROW, probability=72)
@@ -137,7 +145,7 @@ async def test_each_day_is_notified_on_its_own(session):
     assert sorted(await notified(session, alert)) == [70, 72]
 
 
-async def test_raising_the_threshold_rearms_the_alert(session):
+async def test_raising_the_threshold_rearms_the_alert(session, evaluate):
     point, alert = await watched_point(session)
     sample = await make_forecast(session, point, forecast_date=TODAY, probability=65)
     await evaluate(session, TODAY, STEP)
@@ -150,7 +158,7 @@ async def test_raising_the_threshold_rearms_the_alert(session):
     assert await notified(session, alert) == [65, 72]
 
 
-async def test_a_reactivated_alert_does_not_repeat_a_notice(session):
+async def test_a_reactivated_alert_does_not_repeat_a_notice(session, evaluate):
     point, alert = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=70)
     await evaluate(session, TODAY, STEP)
@@ -163,7 +171,7 @@ async def test_a_reactivated_alert_does_not_repeat_a_notice(session):
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_every_member_watching_a_shared_point_is_notified(session):
+async def test_every_member_watching_a_shared_point_is_notified(session, evaluate):
     organization = await make_organization(session)
     point = await make_point(session, organization_id=organization.id)
     alerts = []
@@ -180,7 +188,7 @@ async def test_every_member_watching_a_shared_point_is_notified(session):
     assert await notified(session, second) == [70]
 
 
-async def test_evaluations_take_turns(committed_sessions):
+async def test_evaluations_take_turns(committed_sessions, evaluate):
     # Reproduces the race the advisory lock prevents: without it, the second run would not
     # see the first run's uncommitted 70 and would notify 75, a rise smaller than the step.
     async with committed_sessions() as session:
@@ -210,7 +218,7 @@ async def test_evaluations_take_turns(committed_sessions):
         assert await notified(session, alert) == [70]
 
 
-async def test_someone_removed_from_the_organization_stops_being_notified(session):
+async def test_someone_removed_from_the_organization_stops_being_notified(session, evaluate):
     organization = await make_organization(session)
     point = await make_point(session, organization_id=organization.id)
     ana = await make_user(session)
@@ -224,7 +232,7 @@ async def test_someone_removed_from_the_organization_stops_being_notified(sessio
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_staff_hear_about_any_point(session):
+async def test_staff_hear_about_any_point(session, evaluate):
     technician = await make_user(session, role=Role.TECHNICIAN)
     point = await make_point(session)
     alert = await make_alert(session, technician, point)
