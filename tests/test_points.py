@@ -73,7 +73,7 @@ async def test_a_point_needs_exactly_one_owner(client, session):
     assert two_owners.status_code == 422
 
 
-async def test_clients_only_get_active_samples_and_staff_get_all(client, session):
+async def test_clients_only_get_active_forecasts_and_staff_get_all(client, session):
     ana = await make_user(session)
     technician = await make_user(session, role=Role.TECHNICIAN)
     point = await make_point(session, user_id=ana.id)
@@ -90,7 +90,7 @@ async def test_clients_only_get_active_samples_and_staff_get_all(client, session
     assert [f["id"] for f in seen_by_staff.json()] == [active.id, anomalous.id]
 
 
-async def test_samples_can_be_filtered_by_date(client, session):
+async def test_forecasts_can_be_filtered_by_date(client, session):
     ana = await make_user(session)
     point = await make_point(session, user_id=ana.id)
     for day in (1, 2, 3):
@@ -103,7 +103,7 @@ async def test_samples_can_be_filtered_by_date(client, session):
     assert [f["forecast_date"] for f in response.json()] == ["2030-06-02"]
 
 
-async def test_samples_of_a_point_you_cant_see_are_a_404(client, session):
+async def test_forecasts_of_a_point_you_cant_see_are_a_404(client, session):
     ana = await make_user(session)
     someone_elses = await make_point(session)
 
@@ -112,7 +112,7 @@ async def test_samples_of_a_point_you_cant_see_are_a_404(client, session):
     assert response.status_code == 404
 
 
-async def test_marking_a_sample_returns_the_status_the_database_kept(client, session):
+async def test_marking_a_forecast_returns_the_status_the_database_kept(client, session):
     technician = await make_user(session, role=Role.TECHNICIAN)
     point = await make_point(session, status=OperationalStatus.TESTING)
     sample = await make_forecast(session, point, forecast_date=DAY)
@@ -124,7 +124,7 @@ async def test_marking_a_sample_returns_the_status_the_database_kept(client, ses
     assert response.json()["status"] == OperationalStatus.TESTING
 
 
-async def test_admins_delete_points_and_samples(client, session):
+async def test_admins_delete_points_and_forecasts(client, session):
     admin = await make_user(session, role=Role.ADMIN)
     point = await make_point(session)
     sample = await make_forecast(session, point, forecast_date=DAY)

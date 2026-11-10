@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select, update
 
 from app.enums import EventType, NotificationStatus, OperationalStatus, Role
-from app.jobs import evaluator, evaluator_core
+from app.jobs import evaluator, evaluator_query_builder
 from app.models import Notification, WeatherForecast
 from tests.factories import (
     make_alert,
@@ -17,7 +17,7 @@ from tests.factories import (
 )
 
 
-@pytest.fixture(params=[evaluator, evaluator_core], ids=["raw_sql", "query_builder"])
+@pytest.fixture(params=[evaluator, evaluator_query_builder], ids=["raw_sql", "query_builder"])
 def evaluate(request):
     """Both ways of writing the evaluation must behave the same, so each test runs on both."""
     return request.param.evaluate
@@ -90,7 +90,7 @@ async def test_ignores_data_that_is_not_active(session, evaluate):
     assert await evaluate(session, TODAY, STEP) == 0
 
 
-async def test_a_point_put_in_testing_stops_notifying_its_existing_samples(session, evaluate):
+async def test_a_point_put_in_testing_stops_notifying_its_existing_forecasts(session, evaluate):
     point, _ = await watched_point(session)
     await make_forecast(session, point, forecast_date=TODAY, probability=90)
 

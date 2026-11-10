@@ -114,7 +114,7 @@ async def test_the_same_notification_is_never_stored_twice(session):
         await make_notification(session, alert, probability=70)
 
 
-async def test_deleting_a_point_removes_its_samples_and_alerts(session):
+async def test_deleting_a_point_removes_its_forecasts_and_alerts(session):
     point = await make_point(session)
     await make_forecast(session, point)
     await make_alert(session, await make_user(session), point)
