@@ -5,7 +5,7 @@ from sqlalchemy import func, select, update
 
 from app.enums import EventType, NotificationStatus, OperationalStatus
 from app.jobs import dispatcher
-from app.jobs.dispatcher import MAX_ATTEMPTS, dispatch_next
+from app.jobs.dispatcher import dispatch_next
 from app.jobs.notifier import Notice
 from app.models import Alert, MeasurementPoint, Notification
 from tests.factories import (
@@ -88,12 +88,12 @@ async def test_skips_notices_that_no_longer_apply(session):
         assert notification.status == NotificationStatus.SKIPPED
 
 
-async def test_a_failed_send_is_retried_with_growing_waits(session):
+async def test_a_failed_send_is_retried_until_its_day_passes(session):
     notification = await queued_notice(session, point_name="Lote Norte")
     notifier = RecordingNotifier(failing_points={"Lote Norte"})
     now = await session.scalar(select(func.now()))
 
-    for attempt, wait in enumerate((1, 2, 4, 8), start=1):
+    for attempt, wait in enumerate((1, 2, 4, 8, 16, 30, 30), start=1):
         assert await dispatch_next(session, notifier, TODAY) is True
         await session.refresh(notification)
         assert notification.status == NotificationStatus.PENDING
@@ -102,10 +102,9 @@ async def test_a_failed_send_is_retried_with_growing_waits(session):
         assert await dispatch_next(session, notifier, TODAY) is False, "not due yet"
         await make_due_again(session, notification)
 
-    await dispatch_next(session, notifier, TODAY)
+    await dispatch_next(session, notifier, TODAY + timedelta(days=1))
     await session.refresh(notification)
-    assert notification.attempts == MAX_ATTEMPTS
-    assert notification.status == NotificationStatus.FAILED
+    assert notification.status == NotificationStatus.SKIPPED
 
 
 async def test_a_send_that_hangs_counts_as_failed(session, monkeypatch):

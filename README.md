@@ -220,8 +220,9 @@ esperarse. Cada aviso se envía en su propia transacción y con un timeout de 10
 proceso muere, como mucho se repite un mensaje (entrega *at-least-once*), y un proveedor
 colgado no traba el worker.
 
-Un envío fallido se reintenta a 1, 2, 4 y 8 minutos, así una caída corta de WhatsApp no pierde
-avisos; después de 5 intentos queda fallido, y un aviso fallido no cuenta como "ya avisado".
+Un envío fallido se reintenta con esperas de 1, 2, 4, 8 y 16 minutos y después cada media
+hora, mientras el aviso siga correspondiendo: aunque WhatsApp esté caído un buen rato, el aviso
+llega cuando vuelve. Recién cuando pasa el día del pronóstico se descarta.
 Antes de enviar se revisa que el aviso siga correspondiendo: si la alerta se pausó, el punto
 pasó a testing, el usuario dejó la organización o el día ya pasó, se descarta.
 
@@ -269,10 +270,11 @@ descarta. El detalle está en [docs/tests.md](docs/tests.md).
   implementa `LogNotifier`, y WhatsApp sería otra clase con el mismo método.
 - La ingesta, que el enunciado da por existente. Acá está simulada en `app/mocks/`.
 
-### Limitaciones conocidas
+### Limitaciones que encontré
 
-- Un aviso fallido no se vuelve a encolar si la probabilidad no cambia, porque el unique de
-  alerta, día y probabilidad lo impide. Si cambia, sí.
+- Un envío que falla siempre (por ejemplo, un teléfono que no existe) se reintenta hasta que
+  pasa el día del pronóstico. Con un proveedor real habría que distinguir los errores
+  permanentes y marcarlos como fallidos enseguida.
 - El registro con un email o teléfono ya usado responde 409, lo que deja ver qué cuentas
   existen.
 - No hay límite de intentos de login en la app; iría en el proxy o en el balanceador.

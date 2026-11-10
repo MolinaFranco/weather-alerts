@@ -12,7 +12,7 @@ from app.models import Alert, MeasurementPoint, Membership, Notification, User
 log = logging.getLogger(__name__)
 
 SEND_TIMEOUT = 10
-MAX_ATTEMPTS = 5
+MAX_RETRY_MINUTES = 30
 
 # Same rule as the evaluator's, and as visible_points for the API.
 recipient_can_see_point = or_(
@@ -84,12 +84,10 @@ async def _send(notifier: Notifier, notification: Notification, notice: Notice) 
     except Exception:
         log.exception("Could not send notification %s", notification.id)
         notification.attempts += 1
-        if notification.attempts >= MAX_ATTEMPTS:
-            notification.status = NotificationStatus.FAILED
-        else:
-            # 1, 2, 4 and 8 minutes, so a short outage doesn't use up every attempt.
-            delay = timedelta(minutes=2 ** (notification.attempts - 1))
-            notification.next_attempt_at = func.now() + delay
+        # Waits of 1, 2, 4, 8 and 16 minutes, then every half hour. A notice is never given up
+        # while it still matters: once its day has passed, dispatch_next skips it.
+        minutes = min(2 ** (notification.attempts - 1), MAX_RETRY_MINUTES)
+        notification.next_attempt_at = func.now() + timedelta(minutes=minutes)
     else:
         notification.status = NotificationStatus.SENT
         notification.sent_at = func.now()

@@ -102,7 +102,7 @@ alternativa para comparar). Cada test de esta sección corre contra las dos.
 | Solo envía avisos pendientes | `test_dispatcher.py::test_only_pending_notices_are_sent` |
 | Descarta avisos de alertas pausadas, puntos en testing y días pasados | `test_dispatcher.py::test_skips_notices_that_no_longer_apply` |
 | Descarta avisos de alguien que dejó la organización | `test_dispatcher.py::test_a_notice_for_someone_who_left_the_organization_is_skipped` |
-| Un envío fallido se reintenta a 1, 2, 4 y 8 minutos y al quinto queda fallido | `test_dispatcher.py::test_a_failed_send_is_retried_with_growing_waits` |
+| Un envío fallido se reintenta con esperas crecientes (hasta media hora) y se descarta cuando pasa su día | `test_dispatcher.py::test_a_failed_send_is_retried_until_its_day_passes` |
 | Un envío que se cuelga corta por timeout y cuenta como fallo | `test_dispatcher.py::test_a_send_that_hangs_counts_as_failed` |
 | Dos workers se reparten la cola sin esperarse ni repetir avisos | `test_dispatcher.py::test_concurrent_dispatchers_split_the_queue` |
 | El texto del aviso, tal como lo leería el usuario | `test_notifier.py::test_the_message_reads_like_a_whatsapp_text` |

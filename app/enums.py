@@ -24,5 +24,6 @@ class EventType(StrEnum):
 class NotificationStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"
+    # For a provider that can tell a permanent error; the log notifier never needs it.
     FAILED = "failed"
     SKIPPED = "skipped"

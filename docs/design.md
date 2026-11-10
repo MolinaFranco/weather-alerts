@@ -136,7 +136,7 @@ Se avisa cuando la probabilidad alcanza el umbral, y se vuelve a avisar si sube
 > Umbral 60 · llega 65 → aviso · 79 → nada · 50 → nada · 80 → aviso · 90 → nada
 
 - Solo cuentan como "ya avisado" los avisos pendientes o enviados que superan el umbral
-  **actual**: un aviso que falló no silencia la alerta, y subir el umbral la vuelve a
+  **actual**: un aviso descartado no silencia la alerta, y subir el umbral la vuelve a
   habilitar.
 - Pausar y reactivar una alerta no repite avisos ya enviados.
 - No se avisa de días pasados. "Hoy" se calcula en `TIMEZONE`
@@ -177,8 +177,9 @@ sequenceDiagram
 
 Cada aviso va en su propia transacción. Si el proceso muere después de enviar y antes del
 commit, ese aviso se reenvía: la entrega es *at-least-once*, acotada a un mensaje. Los
-envíos fallidos se reintentan a 1, 2, 4 y 8 minutos, y al quinto fallo el aviso queda
-`failed`.
+envíos fallidos se reintentan con esperas de 1, 2, 4, 8 y 16 minutos y después cada media
+hora, hasta que pasa el día del pronóstico y el aviso queda `skipped`. El estado `failed`
+queda para un proveedor real que pueda informar errores permanentes.
 
 Varios workers se reparten la cola con `SKIP LOCKED`. El lock es solo sobre la fila del
 aviso, así dos avisos del mismo usuario se pueden enviar en paralelo.
