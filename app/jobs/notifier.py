@@ -36,7 +36,7 @@ class Notifier(Protocol):
     async def send(self, notice: Notice) -> None: ...
 
 
-class LogNotifier:
+class LogNotifier(Notifier):
     """Stands in for the WhatsApp client, which is out of scope."""
 
     async def send(self, notice: Notice) -> None:

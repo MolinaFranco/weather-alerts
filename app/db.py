@@ -11,6 +11,8 @@ SessionFactory = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    # Routes that write must commit: whatever isn't committed is rolled back when the
+    # session closes at the end of the request.
     async with SessionFactory() as session:
         yield session
 

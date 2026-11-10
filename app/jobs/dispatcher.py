@@ -15,7 +15,7 @@ SEND_TIMEOUT = 10
 MAX_ATTEMPTS = 5
 
 # Same rule as the evaluator's, and as visible_points for the API.
-owner_can_see_point = or_(
+recipient_can_see_point = or_(
     User.role != Role.CLIENT,
     MeasurementPoint.user_id == User.id,
     MeasurementPoint.organization_id.in_(
@@ -30,7 +30,9 @@ NEXT_DUE = (
         MeasurementPoint.name.label("point_name"),
         Alert.event_type,
         (
-            Alert.is_active & (MeasurementPoint.status == DataStatus.ACTIVE) & owner_can_see_point
+            Alert.is_active
+            & (MeasurementPoint.status == DataStatus.ACTIVE)
+            & recipient_can_see_point
         ).label("still_wanted"),
     )
     .join(Alert, Alert.id == Notification.alert_id)
@@ -58,7 +60,7 @@ async def dispatch_next(session: AsyncSession, notifier: Notifier, today: date) 
     notification = row.Notification
 
     # Since the notice was queued the alert may have been paused, the point put in testing or
-    # its owner removed from the point's organization; and after an outage there is no point
+    # its recipient removed from the point's organization; and after an outage there is no point
     # warning about a day that is gone.
     if row.still_wanted and notification.forecast_date >= today:
         notice = Notice(

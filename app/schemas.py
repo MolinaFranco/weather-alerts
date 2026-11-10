@@ -15,6 +15,8 @@ from pydantic import (
 
 from app.enums import DataStatus, EventType, NotificationStatus, Role
 
+# Field types shared by the schemas below, so each rule is written once.
+
 # Postgres integer columns stop at 2**31 - 1; a bigger id would otherwise be a 500.
 MAX_ID = 2**31 - 1
 Id = Annotated[int, Field(ge=1, le=MAX_ID)]
